@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>Budget Command Center</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: #0b1220;
+      color: #e8eefc;
+      padding: 16px;
+    }
+    h1 { font-size: 18px; }
+    .card {
+      background: #121a2b;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    button {
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    .primary { background: #64d2ff; }
+    .danger { background: #ff6b6b; color: white; }
+    input {
+      padding: 8px;
+      border-radius: 8px;
+      border: none;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    table {
+      width: 100%;
+      font-size: 12px;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 6px;
+      border-bottom: 1px solid #24314f;
+    }
+    .pos { color: #6bff95; }
+    .neg { color: #ff6b6b; }
+  </style>
+</head>
+
+<body>
+
+<h1>Budget Command Center</h1>
+
+<div class="card">
+  <h3>Remaining This Month</h3>
+  <h2 id="remaining">$0.00</h2>
+</div>
+
+<div class="card">
+  <h3>Settings</h3>
+  <input id="income" type="number" placeholder="Monthly Take-Home Income" />
+  <input id="fixed" type="number" placeholder="Fixed Monthly Costs" />
+  <input id="goals" type="number" placeholder="Goal Funding This Month" />
+  <button class="primary" onclick="saveSettings()">Save Settings</button>
+</div>
+
+<div class="card">
+  <h3>Import US Bank CSV</h3>
+  <input type="file" id="fileInput" accept=".csv" />
+  <button class="primary" onclick="importCSV()">Import</button>
+  <button class="danger" onclick="clearData()">Clear Data</button>
+  <p id="status"></p>
+</div>
+
+<div class="card">
+  <h3>This Month Transactions</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Merchant</th>
+        <th>Category</th>
+        <th>Amount</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<script>
+let transactions = JSON.parse(localStorage.getItem("transactions") || "[]");
+
+function saveSettings() {
+  const settings = {
+    income: Number(document.getElementById("income").value || 0),
+    fixed: Number(document.getElementById("fixed").value || 0),
+    goals: Number(document.getElementById("goals").value || 0)
+  };
+  localStorage.setItem("settings", JSON.stringify(settings));
+  updateDashboard();
+}
+
+function importCSV() {
+  const file = document.getElementById("fileInput").files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split("\n");
+    const headers = lines[0].split(",");
+
+    const dateIndex = headers.indexOf("Date");
+    const merchantIndex = headers.indexOf("Merchant");
+    const typeIndex = headers.indexOf("Transaction");
+    const amountIndex = headers.indexOf("Amount");
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(",");
+      if (cols.length < headers.length) continue;
+
+      const date = cols[dateIndex];
+      const merchant = cols[merchantIndex];
+      const type = cols[typeIndex];
+      const amount = Number(cols[amountIndex]);
+
+      const month = new Date(date).getMonth();
+      const currentMonth = new Date().getMonth();
+      if (month !== currentMonth) continue;
+
+      transactions.push({
+        date,
+        merchant,
+        amount,
+        category: categorize(type, merchant, amount)
+      });
+    }
+
+    localStorage.setItem("transactions", JSON.stringify(transactions));
+    document.getElementById("status").innerText = "Import complete.";
+    updateDashboard();
+  };
+  reader.readAsText(file);
+}
+
+function categorize(type, merchant, amount) {
+  merchant = merchant.toUpperCase();
+
+  if (type === "CREDIT") return "Income";
+  if (merchant.includes("AMAZON")) return "Shopping";
+  if (merchant.includes("KWIK TRIP") || merchant.includes("EXXON")) return "Gas";
+  if (merchant.includes("SPECTRUM")) return "Utilities";
+  if (merchant.includes("CREDIT CARD")) return "Transfer";
+
+  return amount < 0 ? "Discretionary" : "Other";
+}
+
+function updateDashboard() {
+  const settings = JSON.parse(localStorage.getItem("settings") || "{}");
+  const income = settings.income || 0;
+  const fixed = settings.fixed || 0;
+  const goals = settings.goals || 0;
+
+  const spending = transactions
+    .filter(t => t.amount < 0 && t.category !== "Transfer")
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+  const remaining = income - fixed - goals - spending;
+
+  document.getElementById("remaining").innerText =
+    remaining.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+  const tbody = document.getElementById("tableBody");
+  tbody.innerHTML = "";
+
+  transactions.forEach(t => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${t.date}</td>
+      <td>${t.merchant}</td>
+      <td>${t.category}</td>
+      <td class="${t.amount >= 0 ? 'pos' : 'neg'}">
+        ${t.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+      </td>
+    `;
+    tbody.appendChild(row);
+  });
+}
+
+function clearData() {
+  if (!confirm("Delete all data?")) return;
+  transactions = [];
+  localStorage.clear();
+  updateDashboard();
+}
+
+updateDashboard();
+</script>
+
+</body>
+</html>
