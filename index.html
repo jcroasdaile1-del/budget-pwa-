@@ -5,200 +5,424 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b1220" />
   <title>Budget Command Center</title>
-
   <style>
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-      background: #0b1220;
-      color: #e8eefc;
-      padding: 16px;
-    }
-    h1 { font-size: 18px; }
-    .card {
-      background: #121a2b;
-      padding: 16px;
-      border-radius: 12px;
-      margin-bottom: 16px;
-    }
-    button {
-      padding: 10px 14px;
-      border-radius: 10px;
-      border: none;
-      font-weight: bold;
-      cursor: pointer;
-      margin-right: 8px;
-    }
-    .primary { background: #64d2ff; }
-    .danger { background: #ff6b6b; color: white; }
-    input {
-      padding: 8px;
-      border-radius: 8px;
-      border: none;
-      width: 100%;
-      margin-bottom: 10px;
-    }
-    table {
-      width: 100%;
-      font-size: 12px;
-      border-collapse: collapse;
-    }
-    th, td {
-      padding: 6px;
-      border-bottom: 1px solid #24314f;
-    }
-    .pos { color: #6bff95; }
-    .neg { color: #ff6b6b; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif; background:#0b1220; color:#e8eefc; padding:16px; }
+    h1 { font-size:18px; margin:0 0 12px; }
+    .card { background:#121a2b; padding:16px; border-radius:12px; margin-bottom:16px; border:1px solid #24314f; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+    button { padding:10px 14px; border-radius:10px; border:none; font-weight:700; cursor:pointer; }
+    .primary { background:#64d2ff; color:#0b1220; }
+    .danger { background:#ff6b6b; color:#fff; }
+    input, select { padding:10px; border-radius:10px; border:1px solid #24314f; background:#0f1726; color:#e8eefc; width:100%; margin-bottom:10px; }
+    label { font-size:12px; color:#9fb0d0; display:block; margin-bottom:6px; }
+    table { width:100%; font-size:12px; border-collapse:collapse; }
+    th, td { padding:8px 6px; border-bottom:1px solid #24314f; vertical-align:top; }
+    th { color:#9fb0d0; text-align:left; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #24314f; border-radius:999px; color:#9fb0d0; font-size:11px; }
+    .pos { color:#6bff95; }
+    .neg { color:#ff6b6b; }
+    .small { font-size:12px; color:#9fb0d0; line-height:1.4; margin:8px 0 0; }
+    .kpi { font-size:34px; font-weight:900; margin:6px 0 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
 </head>
-
 <body>
 
 <h1>Budget Command Center</h1>
 
 <div class="card">
-  <h3>Remaining This Month</h3>
-  <h2 id="remaining">$0.00</h2>
+  <div class="row">
+    <div style="min-width:240px;">
+      <div class="pill">Remaining This Month</div>
+      <div id="remaining" class="kpi">$0.00</div>
+      <div id="subline" class="small"></div>
+      <div id="balanceLine" class="small"></div>
+    </div>
+
+    <div style="min-width:180px;">
+      <label for="monthSelect">Month view</label>
+      <input id="monthSelect" type="month" />
+    </div>
+  </div>
 </div>
 
 <div class="card">
-  <h3>Settings</h3>
-  <input id="income" type="number" placeholder="Monthly Take-Home Income" />
-  <input id="fixed" type="number" placeholder="Fixed Monthly Costs" />
-  <input id="goals" type="number" placeholder="Goal Funding This Month" />
-  <button class="primary" onclick="saveSettings()">Save Settings</button>
+  <h3 style="margin:0 0 10px;">Settings (Monthly)</h3>
+  <label>Monthly Take-Home Income</label>
+  <input id="income" type="number" step="0.01" placeholder="e.g. 9000" />
+
+  <label>Fixed Monthly Costs</label>
+  <input id="fixed" type="number" step="0.01" placeholder="e.g. 4500" />
+
+  <label>Goal Funding This Month</label>
+  <input id="goals" type="number" step="0.01" placeholder="e.g. 500" />
+
+  <label>Exclude Transfers From Spending?</label>
+  <select id="excludeTransfers">
+    <option value="yes" selected>Yes (recommended)</option>
+    <option value="no">No</option>
+  </select>
+
+  <div class="row" style="justify-content:flex-start; gap:10px;">
+    <button class="primary" id="saveSettingsBtn">Save Settings</button>
+    <span id="settingsStatus" class="small"></span>
+  </div>
 </div>
 
 <div class="card">
-  <h3>Import US Bank CSV</h3>
-  <input type="file" id="fileInput" accept=".csv" />
-  <button class="primary" onclick="importCSV()">Import</button>
-  <button class="danger" onclick="clearData()">Clear Data</button>
-  <p id="status"></p>
+  <h3 style="margin:0 0 10px;">Import CSV</h3>
+  <input type="file" id="fileInput" accept=".csv,text/csv" />
+  <div class="row" style="justify-content:flex-start; gap:10px;">
+    <button class="primary" id="importBtn">Import</button>
+    <button class="danger" id="clearBtn">Clear All Data</button>
+  </div>
+  <p id="status" class="small"></p>
+  <div id="debug" class="small mono"></div>
 </div>
 
 <div class="card">
-  <h3>This Month Transactions</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Merchant</th>
-        <th>Category</th>
-        <th>Amount</th>
-      </tr>
-    </thead>
-    <tbody id="tableBody"></tbody>
-  </table>
+  <div class="row">
+    <h3 style="margin:0;">Transactions (Selected Month)</h3>
+    <span id="countPill" class="pill">0 tx</span>
+  </div>
+  <div style="overflow:auto; margin-top:10px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Merchant</th>
+          <th>Type</th>
+          <th>Category</th>
+          <th class="mono">Amount</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
-let transactions = JSON.parse(localStorage.getItem("transactions") || "[]");
+/** -------------------------
+ * Robust CSV parser (handles quoted commas)
+ * ------------------------- */
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let cur = "";
+  let inQuotes = false;
 
-function saveSettings() {
-  const settings = {
-    income: Number(document.getElementById("income").value || 0),
-    fixed: Number(document.getElementById("fixed").value || 0),
-    goals: Number(document.getElementById("goals").value || 0)
-  };
-  localStorage.setItem("settings", JSON.stringify(settings));
-  updateDashboard();
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+
+    if (c === '"') {
+      if (inQuotes && next === '"') { cur += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (c === ',' && !inQuotes) {
+      row.push(cur);
+      cur = "";
+    } else if ((c === '\n' || c === '\r') && !inQuotes) {
+      if (c === '\r' && next === '\n') i++;
+      row.push(cur);
+      cur = "";
+      if (row.some(cell => cell.trim() !== "")) rows.push(row);
+      row = [];
+    } else {
+      cur += c;
+    }
+  }
+  if (cur.length || row.length) {
+    row.push(cur);
+    rows.push(row);
+  }
+  return rows;
 }
 
-function importCSV() {
-  const file = document.getElementById("fileInput").files[0];
-  if (!file) return;
+/** -------------------------
+ * Date parsing (MM/DD/YYYY) - Safari-safe
+ * ------------------------- */
+function parseUSDate(mmddyyyy) {
+  const s = (mmddyyyy || "").trim();
+  const parts = s.split("/");
+  if (parts.length !== 3) return null;
+  const mm = parseInt(parts[0], 10);
+  const dd = parseInt(parts[1], 10);
+  const yyyy = parseInt(parts[2], 10);
+  if (!mm || !dd || !yyyy) return null;
+  const d = new Date(yyyy, mm - 1, dd);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+function yyyymmFromDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+function money(n) {
+  return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
 
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const lines = e.target.result.split("\n");
-    const headers = lines[0].split(",");
+/** -------------------------
+ * Storage
+ * ------------------------- */
+let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
 
-    const dateIndex = headers.indexOf("Date");
-    const merchantIndex = headers.indexOf("Merchant");
-    const typeIndex = headers.indexOf("Transaction");
-    const amountIndex = headers.indexOf("Amount");
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",");
-      if (cols.length < headers.length) continue;
-
-      const date = cols[dateIndex];
-      const merchant = cols[merchantIndex];
-      const type = cols[typeIndex];
-      const amount = Number(cols[amountIndex]);
-
-      const month = new Date(date).getMonth();
-      const currentMonth = new Date().getMonth();
-      if (month !== currentMonth) continue;
-
-      transactions.push({
-        date,
-        merchant,
-        amount,
-        category: categorize(type, merchant, amount)
-      });
-    }
-
-    localStorage.setItem("transactions", JSON.stringify(transactions));
-    document.getElementById("status").innerText = "Import complete.";
-    updateDashboard();
-  };
-  reader.readAsText(file);
+/** -------------------------
+ * Normalization / categorization (starter)
+ * ------------------------- */
+function normalizeMerchant(raw) {
+  let s = (raw || "").toUpperCase().replace(/\s+/g, " ").trim();
+  if (s.includes("AMAZON")) return "Amazon";
+  if (s.includes("PICK N SAVE")) return "Pick 'n Save";
+  if (s.includes("KWIK TRIP")) return "Kwik Trip";
+  if (s.includes("EXXON")) return "Exxon";
+  if (s.includes("SPECTRUM")) return "Spectrum";
+  if (s.includes("USCELL")) return "US Cellular";
+  if (s.includes("FID BKG SVC")) return "Fidelity";
+  if (s.includes("PAYMENT TO CREDIT CARD") || s.includes("CREDIT CARD")) return "Credit Card Payment";
+  return raw || "(Unknown)";
 }
 
 function categorize(type, merchant, amount) {
-  merchant = merchant.toUpperCase();
+  const t = (type || "").toUpperCase();
+  const m = (merchant || "").toUpperCase();
 
-  if (type === "CREDIT") return "Income";
-  if (merchant.includes("AMAZON")) return "Shopping";
-  if (merchant.includes("KWIK TRIP") || merchant.includes("EXXON")) return "Gas";
-  if (merchant.includes("SPECTRUM")) return "Utilities";
-  if (merchant.includes("CREDIT CARD")) return "Transfer";
+  if (t === "CREDIT" && (m.includes("DEPOSIT") || m.includes("CHECK DEPOSIT") || m.includes("PAYROLL"))) return "Income";
+  if (m.includes("PAYMENT TO CREDIT CARD") || m.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD")) return "Transfer";
+  if (m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
+  if (m.includes("SPECTRUM")) return "Utilities";
+  if (m.includes("US CELL") || m.includes("USCELL")) return "Phone";
+  if (m.includes("KWIK TRIP") || m.includes("EXXON")) return "Gas";
+  if (m.includes("AMAZON")) return "Shopping";
+  if (m.includes("PICK N SAVE")) return "Groceries";
 
   return amount < 0 ? "Discretionary" : "Other";
 }
 
-function updateDashboard() {
-  const settings = JSON.parse(localStorage.getItem("settings") || "{}");
-  const income = settings.income || 0;
-  const fixed = settings.fixed || 0;
-  const goals = settings.goals || 0;
+/** -------------------------
+ * Settings
+ * ------------------------- */
+function loadSettings() {
+  const s = JSON.parse(localStorage.getItem("settings") || "{}");
+  document.getElementById("income").value = s.income ?? "";
+  document.getElementById("fixed").value = s.fixed ?? "";
+  document.getElementById("goals").value = s.goals ?? "";
+  document.getElementById("excludeTransfers").value = (s.excludeTransfers ?? true) ? "yes" : "no";
+  return {
+    income: Number(s.income || 0),
+    fixed: Number(s.fixed || 0),
+    goals: Number(s.goals || 0),
+    excludeTransfers: (s.excludeTransfers ?? true)
+  };
+}
+function saveSettings() {
+  const settings = {
+    income: Number(document.getElementById("income").value || 0),
+    fixed: Number(document.getElementById("fixed").value || 0),
+    goals: Number(document.getElementById("goals").value || 0),
+    excludeTransfers: document.getElementById("excludeTransfers").value === "yes"
+  };
+  localStorage.setItem("settings", JSON.stringify(settings));
+  document.getElementById("settingsStatus").textContent = "Saved.";
+  setTimeout(() => document.getElementById("settingsStatus").textContent = "", 1200);
+  updateDashboard();
+}
 
-  const spending = transactions
-    .filter(t => t.amount < 0 && t.category !== "Transfer")
+/** -------------------------
+ * Flexible header mapping
+ * ------------------------- */
+function indexOfAny(headers, candidates) {
+  const upper = headers.map(h => (h || "").trim().toUpperCase());
+  for (const c of candidates) {
+    const idx = upper.indexOf(c.toUpperCase());
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+/** -------------------------
+ * Import
+ * ------------------------- */
+async function importCSVFile(file) {
+  const text = await file.text();
+  const rows = parseCSV(text);
+
+  if (rows.length < 2) throw new Error("CSV looks empty.");
+
+  const header = rows[0].map(h => (h || "").trim());
+  const iDate = indexOfAny(header, ["Date", "Posting Date", "Transaction Date"]);
+  const iType = indexOfAny(header, ["Transaction", "Type"]);
+  const iMerchant = indexOfAny(header, ["Merchant", "Name", "Description"]);
+  const iMemo = indexOfAny(header, ["Memo", "Details", "Note"]);
+  const iAmount = indexOfAny(header, ["Amount", "Transaction Amount"]);
+  const iBalance = indexOfAny(header, ["Balance", "Running Balance"]);
+
+  if (iDate < 0 || iMerchant < 0 || iAmount < 0) {
+    throw new Error("Missing required columns. Need at least: Date + Merchant/Description + Amount.");
+  }
+
+  let added = 0, skipped = 0, failed = 0;
+
+  const debugRows = [];
+
+  for (const r of rows.slice(1)) {
+    try {
+      const dateStr = (r[iDate] ?? "").trim();
+      const type = (iType >= 0 ? (r[iType] ?? "").trim() : "").toUpperCase();
+      const rawMerchant = (r[iMerchant] ?? "").trim();
+      const memo = iMemo >= 0 ? (r[iMemo] ?? "").trim() : "";
+      const amount = Number(((r[iAmount] ?? "") + "").trim());
+
+      const d = parseUSDate(dateStr);
+      if (!d || Number.isNaN(amount)) { failed++; continue; }
+
+      const normalized = normalizeMerchant(rawMerchant);
+      const category = categorize(type, normalized, amount);
+      const month = yyyymmFromDate(d);
+      const dateISO = d.toISOString().slice(0, 10);
+
+      const bal = (iBalance >= 0) ? Number(((r[iBalance] ?? "") + "").trim()) : null;
+      const balance = (bal !== null && !Number.isNaN(bal)) ? bal : null;
+
+      const key = `${dateISO}|${normalized}|${amount.toFixed(2)}`;
+      const exists = allTransactions.some(t => t.key === key);
+      if (exists) { skipped++; continue; }
+
+      const record = {
+        key,
+        dateISO,
+        month,
+        type,
+        rawMerchant,
+        merchant: normalized,
+        memo,
+        amount,
+        balance,
+        category
+      };
+
+      allTransactions.push(record);
+      added++;
+
+      if (debugRows.length < 3) debugRows.push(record);
+    } catch {
+      failed++;
+    }
+  }
+
+  localStorage.setItem("transactions", JSON.stringify(allTransactions));
+  return { added, skipped, failed, debugRows, hasBalance: (iBalance >= 0) };
+}
+
+/** -------------------------
+ * Dashboard
+ * ------------------------- */
+function updateDashboard() {
+  const settings = loadSettings();
+  const selectedMonth = document.getElementById("monthSelect").value || yyyymmFromDate(new Date());
+
+  const monthTx = allTransactions.filter(t => t.month === selectedMonth);
+
+  const spending = monthTx
+    .filter(t => t.amount < 0)
+    .filter(t => settings.excludeTransfers ? t.category !== "Transfer" : true)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
-  const remaining = income - fixed - goals - spending;
+  const remaining = settings.income - settings.fixed - settings.goals - spending;
 
-  document.getElementById("remaining").innerText =
-    remaining.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  const remainingEl = document.getElementById("remaining");
+  remainingEl.textContent = money(remaining);
+  remainingEl.style.color = remaining >= 0 ? "#6bff95" : "#ff6b6b";
+
+  document.getElementById("subline").textContent =
+    `Month: ${selectedMonth} • Spending: ${money(spending)} • Transfers excluded: ${settings.excludeTransfers ? "Yes" : "No"}`;
+
+  // Balance: show latest balance in month if provided
+  const balances = monthTx.filter(t => typeof t.balance === "number");
+  const balanceLine = document.getElementById("balanceLine");
+  if (balances.length) {
+    balances.sort((a,b) => a.dateISO < b.dateISO ? 1 : -1);
+    balanceLine.textContent = `Latest balance (from CSV): ${money(balances[0].balance)}`;
+  } else {
+    balanceLine.textContent = `Latest balance: (not provided in CSV export)`;
+  }
+
+  document.getElementById("countPill").textContent = `${monthTx.length} tx`;
 
   const tbody = document.getElementById("tableBody");
   tbody.innerHTML = "";
 
-  transactions.forEach(t => {
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${t.date}</td>
-      <td>${t.merchant}</td>
-      <td>${t.category}</td>
-      <td class="${t.amount >= 0 ? 'pos' : 'neg'}">
-        ${t.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-      </td>
-    `;
-    tbody.appendChild(row);
-  });
+  monthTx
+    .slice()
+    .sort((a,b) => a.dateISO < b.dateISO ? 1 : -1)
+    .slice(0, 300)
+    .forEach(t => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td class="mono">${t.dateISO}</td>
+        <td>${t.merchant}</td>
+        <td class="mono">${t.type || ""}</td>
+        <td><span class="pill">${t.category}</span></td>
+        <td class="mono ${t.amount >= 0 ? 'pos' : 'neg'}">${money(t.amount)}</td>
+      `;
+      tbody.appendChild(row);
+    });
 }
 
-function clearData() {
-  if (!confirm("Delete all data?")) return;
-  transactions = [];
+function clearAll() {
+  if (!confirm("Delete all transactions + settings on this device?")) return;
+  allTransactions = [];
   localStorage.clear();
+  document.getElementById("status").textContent = "Cleared.";
+  document.getElementById("debug").textContent = "";
+  document.getElementById("monthSelect").value = yyyymmFromDate(new Date());
   updateDashboard();
 }
 
-updateDashboard();
+/** -------------------------
+ * Wire UI
+ * ------------------------- */
+document.getElementById("saveSettingsBtn").addEventListener("click", saveSettings);
+document.getElementById("monthSelect").addEventListener("change", updateDashboard);
+document.getElementById("clearBtn").addEventListener("click", clearAll);
+
+document.getElementById("importBtn").addEventListener("click", async () => {
+  const fileInput = document.getElementById("fileInput");
+  const f = fileInput.files && fileInput.files[0];
+  if (!f) { document.getElementById("status").textContent = "Pick a CSV file first."; return; }
+
+  document.getElementById("status").textContent = "Importing…";
+  document.getElementById("debug").textContent = "";
+
+  try {
+    const res = await importCSVFile(f);
+    document.getElementById("status").textContent =
+      `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Balance column: ${res.hasBalance ? "Yes" : "No"}`;
+
+    if (res.debugRows.length) {
+      document.getElementById("debug").textContent =
+        "Parsed sample rows:\n" + res.debugRows.map(r =>
+          `${r.dateISO} | ${r.merchant} | ${r.amount} | ${r.category}` + (r.balance !== null ? ` | bal=${r.balance}` : "")
+        ).join("\n");
+    } else {
+      document.getElementById("debug").textContent = "No rows parsed. This usually means the CSV headers don’t match or the date format differs.";
+    }
+
+    updateDashboard();
+  } catch (e) {
+    document.getElementById("status").textContent = `Import failed: ${e.message || e}`;
+  } finally {
+    fileInput.value = "";
+  }
+});
+
+/** init */
+(function init() {
+  const m = document.getElementById("monthSelect");
+  m.value = yyyymmFromDate(new Date());
+  loadSettings();
+  updateDashboard();
+})();
 </script>
 
 </body>
