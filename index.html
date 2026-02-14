@@ -184,14 +184,14 @@
       <summary>Rules: teach the app how to categorize merchants</summary>
 
       <p class="small">
-        Add rules like: <span class="mono">"SPECTRUM"</span> → <span class="mono">Utilities</span>.
+        Add rules like: <span class="mono">"JOHNSON BANK"</span> → <span class="mono">Mortgage</span>.
         Rules are applied top-to-bottom (first match wins).
       </p>
 
       <div class="grid2">
         <div>
           <label>Merchant contains (case-insensitive)</label>
-          <input id="ruleContains" placeholder='e.g. spectrum, kwik trip, disney+' />
+          <input id="ruleContains" placeholder='e.g. johnson bank, carmax, us cellular, wpm' />
         </div>
         <div>
           <label>Category</label>
@@ -200,7 +200,9 @@
             <option>Gas</option>
             <option>Utilities</option>
             <option>Phone</option>
-            <option>Rent/Mortgage</option>
+            <option>Mortgage</option>
+            <option>HOA</option>
+            <option>Car Payment</option>
             <option>Insurance</option>
             <option>Subscriptions</option>
             <option>Dining</option>
@@ -394,8 +396,7 @@ function escapeHtml(s) {
 function normalizeMerchant(name, memo) {
   const base = (name || "").replace(/\s+/g, " ").trim();
   const m = (memo || "").replace(/\s+/g, " ").trim();
-  const s = base || m || "";
-  return s;
+  return (base || m || "").trim();
 }
 
 function isMarkerRow(txType, name, memo) {
@@ -419,27 +420,57 @@ function heuristicCategory(txType, merchant, memo, amount) {
   const n = (merchant || "").toUpperCase();
   const m = (memo || "").toUpperCase();
 
+  // Transfers (credit-card oriented; keep tight)
   if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return "Transfer";
   if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
 
+  // Investing
   if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
 
+  // ===== Your requested "just check the CSV names" additions =====
+  // US Cellular -> Phone
+  if (n.includes("US CELLULAR") || n.includes("U.S. CELLULAR") || n.includes("USCELLULAR") || n.includes("US CELL") || n.includes("USCELL") ||
+      m.includes("US CELLULAR") || m.includes("U.S. CELLULAR") || m.includes("USCELLULAR") || m.includes("US CELL") || m.includes("USCELL")) {
+    return "Phone";
+  }
+
+  // Johnson Bank -> Mortgage
+  if (n.includes("JOHNSON BANK") || m.includes("JOHNSON BANK")) return "Mortgage";
+
+  // CarMax -> Car Payment
+  if (n.includes("CARMAX") || m.includes("CARMAX")) return "Car Payment";
+
+  // External Withdrawal from WPM -> Car Payment
+  if ((n.includes("EXTERNAL WITHDRAWAL") && n.includes("WPM")) || (m.includes("EXTERNAL WITHDRAWAL") && m.includes("WPM"))) return "Car Payment";
+
+  // HOA -> HOA
+  if (n.includes("HOA") || m.includes("HOA") || n.includes("HOMEOWNERS ASSOCIATION") || m.includes("HOMEOWNERS ASSOCIATION")) return "HOA";
+  // =============================================================
+
+  // Utilities
   if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
   if (n.includes("WE ENERGIES") || m.includes("WE ENERGIES")) return "Utilities";
-  if (n.includes("US CELL") || n.includes("USCELL") || m.includes("USCELL")) return "Phone";
+
+  // Other phone carriers
   if (n.includes("VERIZON") || m.includes("VERIZON")) return "Phone";
+
+  // Gas
   if (n.includes("KWIK TRIP") || n.includes("EXXON") || n.includes("SHELL") || m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL")) return "Gas";
+
+  // Shopping/Groceries
   if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
   if (n.includes("TARGET") || m.includes("TARGET")) return "Shopping";
   if (n.includes("WALMART") || m.includes("WALMART")) return "Shopping";
   if (n.includes("PICK N SAVE") || n.includes("KROGER") || m.includes("PICK N SAVE") || m.includes("KROGER")) return "Groceries";
   if (n.includes("COSTCO") || m.includes("COSTCO")) return "Groceries";
 
+  // Subscriptions
   if (n.includes("DISNEY") || n.includes("APPLE") || n.includes("NETFLIX") || n.includes("HULU") || n.includes("SPOTIFY") || n.includes("CHATGPT")
       || m.includes("DISNEY") || m.includes("APPLE") || m.includes("NETFLIX") || m.includes("HULU") || m.includes("SPOTIFY") || m.includes("CHATGPT")) {
     return "Subscriptions";
   }
 
+  // Income
   if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) {
     return "Income";
   }
@@ -753,7 +784,7 @@ function buildReconciliation() {
 }
 
 /* =========================================================
-   8) Charts + INSIDE-CANVAS LEGEND
+   8) Charts (legend INSIDE canvas)
 ========================================================= */
 function hashToHue(str) { let h=0; for (let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))>>>0; return h%360; }
 function colorForLabel(label){ return `hsl(${hashToHue(String(label||""))} 70% 55%)`; }
@@ -767,7 +798,6 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
   ctx.fillStyle = "#0f1726";
   ctx.fillRect(0, 0, W, H);
 
-  // Title
   ctx.fillStyle = "#e8eefc";
   ctx.font = "900 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
   ctx.fillText(title, 18, 28);
@@ -780,7 +810,6 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
     return;
   }
 
-  // Pie
   const cx = Math.round(W * 0.30);
   const cy = Math.round(H * 0.58);
   const r = Math.round(Math.min(W, H) * 0.30);
@@ -798,29 +827,24 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
     start = end;
   }
 
-  // Donut hole
   ctx.fillStyle = "#0f1726";
   ctx.beginPath();
   ctx.arc(cx, cy, Math.round(r * 0.55), 0, Math.PI * 2);
   ctx.fill();
 
-  // Center total
   ctx.fillStyle = "#e8eefc";
   ctx.font = "900 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
   ctx.fillText(money(total), cx - 55, cy + 6);
 
-  // Legend inside canvas (right side)
   const legend = data.slice().sort((a,b)=>b.value-a.value).slice(0, legendMax);
-
   const lx = Math.round(W * 0.62);
-  const ly0 = 58;                 // start under title
+  const ly0 = 58;
   const rowH = 22;
   const sw = 12, sh = 12;
 
   ctx.font = "800 12px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
   ctx.textBaseline = "middle";
 
-  // subtle legend header line
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.fillRect(lx, 42, W - lx - 18, 1);
 
@@ -828,15 +852,12 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
     const item = legend[i];
     const y = ly0 + i * rowH;
 
-    // color square
     ctx.fillStyle = colorForLabel(item.label);
     ctx.fillRect(lx, y - sh/2, sw, sh);
 
-    // label
     ctx.fillStyle = "#e8eefc";
     ctx.fillText(String(item.label), lx + sw + 10, y);
 
-    // value (right aligned)
     const valueText = money(item.value);
     ctx.fillStyle = "#9fb0d0";
     const rightX = W - 18;
@@ -844,7 +865,6 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
     ctx.fillText(valueText, rightX - metrics.width, y);
   }
 
-  // if there are more categories than we show, indicate it
   if (data.length > legendMax) {
     const y = ly0 + legendMax * rowH;
     ctx.fillStyle = "#9fb0d0";
@@ -855,7 +875,7 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
 }
 
 /* =========================================================
-   9) UI wiring
+   9) UI Wiring + Dashboard
 ========================================================= */
 const els = {
   viewMode: document.getElementById("viewMode"),
@@ -916,16 +936,12 @@ function updateViewModeUI() {
 }
 
 function buildCategoryBreakdown(scopeTx) {
-  const spend = scopeTx
-    .filter(t => t.amount < 0)
-    .filter(t => t.category !== "Transfer");
-
+  const spend = scopeTx.filter(t => t.amount < 0).filter(t => t.category !== "Transfer");
   const byCat = new Map();
   for (const t of spend) {
     const cat = t.category || "Other";
     byCat.set(cat, (byCat.get(cat) || 0) + Math.abs(t.amount));
   }
-
   const data = Array.from(byCat.entries()).map(([label, value]) => ({ label, value }));
   data.sort((a,b)=>b.value - a.value);
   return data;
@@ -951,9 +967,7 @@ function updateRulesTable() {
   els.rulesTableWrap.innerHTML = `
     <div style="overflow:auto;">
       <table>
-        <thead>
-          <tr><th>#</th><th>Contains</th><th>Category</th><th></th><th></th><th></th></tr>
-        </thead>
+        <thead><tr><th>#</th><th>Contains</th><th>Category</th><th></th><th></th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -999,8 +1013,6 @@ function updateRulesTable() {
   });
 }
 
-function getDataRange() { return { minISO: minDateISO(allTransactions) || "", maxISO: maxDateISO(allTransactions) || "" }; }
-
 function updateTopDelta(balInfo, scope, totals) {
   const delta = (balInfo && balInfo.deltaFromAnchor !== null && balInfo.deltaFromAnchor !== undefined)
     ? balInfo.deltaFromAnchor
@@ -1016,61 +1028,6 @@ function updateTopDelta(balInfo, scope, totals) {
   } else {
     els.topSub.textContent = `Net change in scope (no balance marker found) • ${scope.label}`;
   }
-}
-
-function getScope() {
-  const mode = els.viewMode.value;
-
-  if (mode === "all") {
-    const { minISO, maxISO } = getDataRange();
-    return { mode, startISO: minISO, endISO: maxISO, label: `All time (${minISO} → ${maxISO})` };
-  }
-
-  if (mode === "month") {
-    const month = els.monthSelect.value || yyyymmFromDate(new Date());
-    const startISO = `${month}-01`;
-    const [y,m] = month.split("-").map(n=>parseInt(n,10));
-    const last = new Date(y, m, 0).toISOString().slice(0,10);
-    return { mode, startISO, endISO:last, label: `Month ${month}` };
-  }
-
-  const { minISO, maxISO } = getDataRange();
-  const startISO = els.rangeStart.value || minISO;
-  const endISO = els.rangeEnd.value || maxISO;
-  return { mode:"range", startISO, endISO, label: `Range ${startISO} → ${endISO}` };
-}
-
-function filterToScope(tx, scope) {
-  const s = scope.startISO || "0000-01-01";
-  const e = scope.endISO || "9999-12-31";
-  return tx.filter(t => t.dateISO >= s && t.dateISO <= e);
-}
-
-function scopeTotals(scopeTxAll) {
-  const scopeTx = scopeTxAll.filter(t => t.category !== "Starting Balance");
-  const income = scopeTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
-  const outflows = scopeTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
-  const transferOut = scopeTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
-  const transferIn  = scopeTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
-  const transfers = transferIn - transferOut;
-  const spending = scopeTx.filter(t => t.amount < 0).filter(t => t.category !== "Transfer").reduce((s,t)=>s+Math.abs(t.amount),0);
-  const netChange = scopeTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
-  return { income, outflows, transfers, spending, netChange, scopeTxAll, scopeTx };
-}
-
-function computeRunningBalanceAt(endISO) {
-  if (!endISO) return { runningBal: null, explain: "No end date.", anchor: null, deltaFromAnchor: null };
-  const markers = allTransactions.filter(t => t.category === "Starting Balance").slice().sort((a,b)=>a.dateISO>b.dateISO?1:-1);
-  const candidates = markers.filter(m => m.dateISO <= endISO);
-  const anchor = candidates.length ? candidates[candidates.length - 1] : null;
-  if (!anchor) return { runningBal: null, explain: `No starting balance marker found on/before ${endISO}.`, anchor: null, deltaFromAnchor: null };
-
-  const scope = allTransactions
-    .filter(t => t.category !== "Starting Balance")
-    .filter(t => t.dateISO >= anchor.dateISO && t.dateISO <= endISO);
-
-  const netSinceAnchor = scope.reduce((s,t)=>s + Number(t.amount || 0), 0);
-  return { runningBal: anchor.amount + netSinceAnchor, deltaFromAnchor: netSinceAnchor, anchor, explain: `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${endISO}` };
 }
 
 function updateDashboard() {
@@ -1101,12 +1058,8 @@ function updateDashboard() {
     els.balanceHint.textContent = bal.explain;
   }
 
-  // Pie + inside-canvas legend
   if (els.chartMode.value === "cashflow") {
-    const data = [
-      { label: "Income", value: totals.income },
-      { label: "Outflows", value: totals.outflows }
-    ];
+    const data = [{ label:"Income", value: totals.income }, { label:"Outflows", value: totals.outflows }];
     drawPieWithLegend(els.pieCanvas, data, `Cashflow • ${scope.startISO} → ${scope.endISO}`, 8);
     els.pieSummary.textContent = `Income: ${money(totals.income)} • Outflows: ${money(totals.outflows)}`;
   } else {
@@ -1115,7 +1068,6 @@ function updateDashboard() {
     els.pieSummary.textContent = catData.slice(0,6).map(d => `${d.label}: ${money(d.value)}`).join(" • ") || "No spending data.";
   }
 
-  // Smart insights + rules table unchanged in this paste (kept as-is previously)
   const recurring = detectRecurring(allTransactions);
   els.recurringCount.textContent = String(recurring.length);
   els.recurringList.innerHTML = recurring.length
@@ -1124,12 +1076,15 @@ function updateDashboard() {
 
   const paycheck = detectPaychecks(allTransactions);
   els.paycheckSummary.textContent = paycheck.summary;
+
   const lastChecks = paycheck.paychecks.length
     ? `<div class="small"><b>Recent paycheck-like credits:</b> ${paycheck.paychecks.map(p => `${p.dateISO} ${money(p.amount)}`).join(" • ")}</div>`
     : `<div class="small hint">Need more credit history to detect paychecks.</div>`;
+
   const spikeLines = paycheck.spikes.length
     ? `<div class="small"><b>Overtime spikes:</b> ${paycheck.spikes.map(s => `${s.dateISO} ${money(s.amount)} (+${money(s.delta)})`).join(" • ")}</div>`
     : `<div class="small hint">No overtime spikes detected (yet).</div>`;
+
   els.paycheckList.innerHTML = lastChecks + spikeLines;
 
   const recon = buildReconciliation();
@@ -1138,6 +1093,7 @@ function updateDashboard() {
 
   els.countPill.textContent = `${totals.scopeTxAll.length} rows`;
   els.tableBody.innerHTML = "";
+
   totals.scopeTxAll.slice().sort((a,b)=>a.dateISO<b.dateISO?1:-1).slice(0,900).forEach(t => {
     const amtClass = t.amount >= 0 ? "pos" : "neg";
     const row = document.createElement("tr");
@@ -1154,7 +1110,7 @@ function updateDashboard() {
 }
 
 /* =========================================================
-   10) Events / Buttons (unchanged behavior)
+   10) Events / Buttons
 ========================================================= */
 els.viewMode.addEventListener("change", updateDashboard);
 els.rangeStart.addEventListener("change", updateDashboard);
@@ -1194,19 +1150,12 @@ els.rangeThisMonthBtn.addEventListener("click", () => {
   updateDashboard();
 });
 
-// Rules table functions + imports were in your prior version; keep them the same.
-// This snippet assumes those exist below. If you pasted this over your existing file,
-// you already have: updateRulesTable(), recategorizeAll(), importCSVFile(), etc.
+els.importBtn.addEventListener("click", async () => {
+  const f = els.fileInput.files && els.fileInput.files[0];
+  if (!f) { els.status.textContent = "Pick a CSV file first."; return; }
 
-// --- Hook up the import/rules buttons exactly as before (kept in your existing file) ---
-document.getElementById("importBtn").addEventListener("click", async () => {
-  const f = document.getElementById("fileInput").files && document.getElementById("fileInput").files[0];
-  const status = document.getElementById("status");
-  const debug = document.getElementById("debug");
-  if (!f) { status.textContent = "Pick a CSV file first."; return; }
-
-  status.textContent = "Importing…";
-  debug.textContent = "";
+  els.status.textContent = "Importing…";
+  els.debug.textContent = "";
 
   try {
     const res = await importCSVFile(f);
@@ -1223,37 +1172,38 @@ document.getElementById("importBtn").addEventListener("click", async () => {
       els.rangeEnd.value = maxISO || "";
     }
 
-    status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Scope set to ${res.range.minISO || "?"} → ${res.range.maxISO || "?"}`;
-    debug.textContent = res.debugRows.length
+    els.status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Scope set to ${res.range.minISO || "?"} → ${res.range.maxISO || "?"}`;
+
+    els.debug.textContent = res.debugRows.length
       ? "Parsed sample rows:\n" + res.debugRows.map(r => `${r.dateISO} | ${r.txType || ""} | "${r.merchant}" | amt=${r.amount} | cat=${r.category}`).join("\n")
       : "No rows parsed.";
 
     updateRulesTable();
     updateDashboard();
   } catch (e) {
-    status.textContent = `Import failed: ${e.message || e}`;
+    els.status.textContent = `Import failed: ${e.message || e}`;
   } finally {
-    document.getElementById("fileInput").value = "";
+    els.fileInput.value = "";
   }
 });
 
-document.getElementById("removeMarkersBtn").addEventListener("click", () => {
+els.removeMarkersBtn.addEventListener("click", () => {
   if (!confirm("Remove ALL Starting Balance marker rows?")) return;
   const before = allTransactions.length;
   allTransactions = allTransactions.filter(t => t.category !== "Starting Balance");
   saveAll();
-  document.getElementById("status").textContent = `Removed ${before - allTransactions.length} marker rows.`;
+  els.status.textContent = `Removed ${before - allTransactions.length} marker rows.`;
   updateDashboard();
 });
 
-document.getElementById("clearBtn").addEventListener("click", () => {
+els.clearBtn.addEventListener("click", () => {
   if (!confirm("Start fresh? This deletes ALL imported data AND rules.")) return;
   allTransactions = [];
   userRules = [];
   importMeta = [];
   localStorage.clear();
-  document.getElementById("status").textContent = "Deleted everything. Import a new CSV to start.";
-  document.getElementById("debug").textContent = "";
+  els.status.textContent = "Deleted everything. Import a new CSV to start.";
+  els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
   els.viewMode.value = "range";
   els.rangeStart.value = "";
@@ -1262,27 +1212,27 @@ document.getElementById("clearBtn").addEventListener("click", () => {
   updateDashboard();
 });
 
-document.getElementById("addRuleBtn").addEventListener("click", () => {
-  const contains = (document.getElementById("ruleContains").value || "").trim();
-  const category = document.getElementById("ruleCategory").value;
+els.addRuleBtn.addEventListener("click", () => {
+  const contains = (els.ruleContains.value || "").trim();
+  const category = els.ruleCategory.value;
   if (!contains) return;
 
   userRules.unshift({ contains, category, createdAtISO: new Date().toISOString() });
-  document.getElementById("ruleContains").value = "";
+  els.ruleContains.value = "";
   saveAll();
   updateRulesTable();
   recategorizeAll();
   updateDashboard();
 });
 
-document.getElementById("reapplyRulesBtn").addEventListener("click", () => {
+els.reapplyRulesBtn.addEventListener("click", () => {
   recategorizeAll();
   updateDashboard();
-  document.getElementById("status").textContent = "Reapplied rules to all transactions.";
-  setTimeout(()=>document.getElementById("status").textContent="", 1200);
+  els.status.textContent = "Reapplied rules to all transactions.";
+  setTimeout(()=>els.status.textContent="", 1200);
 });
 
-document.getElementById("clearRulesBtn").addEventListener("click", () => {
+els.clearRulesBtn.addEventListener("click", () => {
   if (!confirm("Delete ALL rules?")) return;
   userRules = [];
   saveAll();
