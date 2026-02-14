@@ -27,15 +27,22 @@
     .small { font-size:12px; color:#9fb0d0; line-height:1.4; margin:8px 0 0; }
     .kpi { font-size:34px; font-weight:950; margin:6px 0 0; letter-spacing:-.5px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .grid2 { display:grid; grid-template-columns: 1fr; gap:10px; }
     .grid3 { display:grid; grid-template-columns: 1fr; gap:10px; }
-    @media(min-width:820px){ .grid3 { grid-template-columns: 1fr 1fr 1fr; } }
+    @media(min-width:820px){
+      .grid2 { grid-template-columns: 1fr 1fr; }
+      .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+    }
     .kpiBox { background:#0f1726; border:1px solid #24314f; border-radius:12px; padding:12px; }
     .kpiBox .t { color:#9fb0d0; font-size:12px; }
     .kpiBox .v { font-size:20px; font-weight:900; margin-top:6px; }
     .hint { color:#9fb0d0; font-size:12px; }
     .warn { color:#ffd36b; }
-    canvas { max-width:100%; background:#0f1726; border:1px solid #24314f; border-radius:12px; }
+    details summary { cursor:pointer; color:#e8eefc; font-weight:800; }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; background:#0f1726; border:1px solid #24314f; font-size:11px; color:#9fb0d0; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid #24314f; background:#0f1726; font-size:12px; color:#e8eefc; margin:4px 6px 0 0; }
     .right { text-align:right; }
+    canvas { max-width:100%; background:#0f1726; border:1px solid #24314f; border-radius:12px; }
   </style>
 </head>
 
@@ -54,7 +61,7 @@
       <div style="min-width:340px;">
         <label for="viewMode">View mode</label>
         <select id="viewMode">
-          <option value="range" selected>Date range (recommended)</option>
+          <option value="range" selected>Date range (auto from CSV)</option>
           <option value="month">Month</option>
           <option value="all">All time</option>
         </select>
@@ -71,8 +78,9 @@
             </div>
           </div>
           <div class="btnRow" style="margin-top:8px;">
-            <button class="ghost" id="rangeToDataBtn">Use full imported data range</button>
+            <button class="ghost" id="rangeToAllDataBtn">Full history range</button>
             <button class="ghost" id="rangeLast90Btn">Last 90 days</button>
+            <button class="ghost" id="rangeThisMonthBtn">This month</button>
           </div>
         </div>
 
@@ -99,29 +107,135 @@
     <p class="small">
       <b>Running balance:</b> Uses the most recent marker row (Transaction=Balance OR Name/Memo contains “starting balance”)
       on/before the scope end date, then sums transactions forward to the end date.
+      If you ever want to restart the running balance, add a newer marker row with your new anchor.
     </p>
   </div>
 
   <div class="card">
     <h3 style="margin:0 0 10px;">Totals (Current Scope)</h3>
+
     <div class="grid3">
-      <div class="kpiBox"><div class="t">Income</div><div id="income" class="v pos">$0.00</div></div>
-      <div class="kpiBox"><div class="t">Outflows</div><div id="outflows" class="v neg">$0.00</div></div>
-      <div class="kpiBox"><div class="t">Spending (Transfers Excluded)</div><div id="spending" class="v neg">$0.00</div></div>
-      <div class="kpiBox"><div class="t">Transfers (Net)</div><div id="transfers" class="v">$0.00</div></div>
-      <div class="kpiBox"><div class="t">Net Change (All Tx)</div><div id="netChange" class="v">$0.00</div></div>
-      <div class="kpiBox"><div class="t">Running Balance (Computed)</div><div id="balanceBox" class="v">$0.00</div><div id="balanceHint" class="hint"></div></div>
+      <div class="kpiBox">
+        <div class="t">Income (Credits)</div>
+        <div id="income" class="v pos">$0.00</div>
+        <div class="hint">Sum of positive amounts</div>
+      </div>
+
+      <div class="kpiBox">
+        <div class="t">Outflows (Debits)</div>
+        <div id="outflows" class="v neg">$0.00</div>
+        <div class="hint">Sum of absolute negatives</div>
+      </div>
+
+      <div class="kpiBox">
+        <div class="t">Spending (Transfers Excluded)</div>
+        <div id="spending" class="v neg">$0.00</div>
+        <div class="hint">Debits excluding transfers</div>
+      </div>
+
+      <div class="kpiBox">
+        <div class="t">Transfers (Net)</div>
+        <div id="transfers" class="v">$0.00</div>
+        <div class="hint">Net of transfer-labeled items</div>
+      </div>
+
+      <div class="kpiBox">
+        <div class="t">Net Change (All Tx)</div>
+        <div id="netChange" class="v">$0.00</div>
+        <div class="hint">Sum of amounts (excludes marker rows)</div>
+      </div>
+
+      <div class="kpiBox">
+        <div class="t">Running Balance (Computed)</div>
+        <div id="balanceBox" class="v">$0.00</div>
+        <div id="balanceHint" class="hint"></div>
+      </div>
     </div>
+  </div>
+
+  <div class="card">
+    <details open>
+      <summary>Smart Insights</summary>
+
+      <div class="grid2" style="margin-top:12px;">
+        <div class="kpiBox">
+          <div class="t">Recurring bills / subscriptions detected</div>
+          <div id="recurringCount" class="v">0</div>
+          <div id="recurringList" class="small"></div>
+        </div>
+
+        <div class="kpiBox">
+          <div class="t">Paycheck pattern + overtime spikes</div>
+          <div id="paycheckSummary" class="v">—</div>
+          <div id="paycheckList" class="small"></div>
+        </div>
+      </div>
+
+      <div class="kpiBox" style="margin-top:12px;">
+        <div class="t">Reconciliation (import quality)</div>
+        <div id="reconLine" class="v">—</div>
+        <div id="reconDetails" class="small"></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Rules: teach the app how to categorize merchants</summary>
+
+      <p class="small">
+        Add rules like: <span class="mono">"SPECTRUM"</span> → <span class="mono">Utilities</span>.
+        Rules are applied top-to-bottom (first match wins).
+      </p>
+
+      <div class="grid2">
+        <div>
+          <label>Merchant contains (case-insensitive)</label>
+          <input id="ruleContains" placeholder='e.g. spectrum, kwik trip, disney+' />
+        </div>
+        <div>
+          <label>Category</label>
+          <select id="ruleCategory">
+            <option>Groceries</option>
+            <option>Gas</option>
+            <option>Utilities</option>
+            <option>Phone</option>
+            <option>Rent/Mortgage</option>
+            <option>Insurance</option>
+            <option>Subscriptions</option>
+            <option>Dining</option>
+            <option>Shopping</option>
+            <option>Kids</option>
+            <option>Medical</option>
+            <option>Travel</option>
+            <option>Investing</option>
+            <option>Transfer</option>
+            <option>Income</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btnRow" style="margin-top:10px;">
+        <button class="primary" id="addRuleBtn">Add Rule</button>
+        <button class="ghost" id="reapplyRulesBtn">Reapply Rules to All Transactions</button>
+        <button class="danger" id="clearRulesBtn">Delete All Rules</button>
+      </div>
+
+      <div id="rulesTableWrap" style="overflow:auto; margin-top:12px;"></div>
+    </details>
   </div>
 
   <div class="card">
     <h3 style="margin:0 0 10px;">Import CSV</h3>
     <input type="file" id="fileInput" accept=".csv,text/csv" />
+
     <div class="btnRow" style="margin-top:10px;">
       <button class="primary" id="importBtn">Import (Add to History)</button>
       <button class="ghost" id="removeMarkersBtn">Remove ALL Starting Balance Rows</button>
       <button class="danger" id="clearBtn">Start Fresh (Delete Everything)</button>
     </div>
+
     <p id="status" class="small"></p>
     <div id="debug" class="small mono"></div>
   </div>
@@ -131,6 +245,7 @@
       <h3 style="margin:0;">Transactions (Current Scope)</h3>
       <span id="countPill" class="pill">0 rows</span>
     </div>
+
     <div style="overflow:auto; margin-top:10px;">
       <table>
         <thead>
@@ -149,19 +264,22 @@
   </div>
 
 <script>
-/* =========================
-   Storage
-========================= */
+/* =========================================================
+   0) Storage + State
+========================================================= */
 let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
+let userRules = JSON.parse(localStorage.getItem("userRules") || "[]");
 let importMeta = JSON.parse(localStorage.getItem("importMeta") || "[]");
+
 function saveAll() {
   localStorage.setItem("transactions", JSON.stringify(allTransactions));
+  localStorage.setItem("userRules", JSON.stringify(userRules));
   localStorage.setItem("importMeta", JSON.stringify(importMeta));
 }
 
-/* =========================
-   CSV parser
-========================= */
+/* =========================================================
+   1) Utilities: CSV parsing, money, dates
+========================================================= */
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -190,9 +308,6 @@ function parseCSV(text) {
   return rows;
 }
 
-/* =========================
-   Money + Dates
-========================= */
 function parseMoney(value) {
   if (value === null || value === undefined) return null;
   let s = String(value).trim();
@@ -206,9 +321,11 @@ function parseMoney(value) {
   if (Number.isNaN(n)) return null;
   return isParenNeg ? -n : n;
 }
+
 function money(n) {
   return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
+
 function parseUSDate(mmddyyyy) {
   const s = (mmddyyyy || "").trim();
   const parts = s.split("/");
@@ -221,11 +338,13 @@ function parseUSDate(mmddyyyy) {
   if (Number.isNaN(d.getTime())) return null;
   return d;
 }
+
 function yyyymmFromDate(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
 }
+
 function indexOfAny(headers, candidates) {
   const upper = headers.map(h => (h || "").trim().toUpperCase());
   for (const c of candidates) {
@@ -234,59 +353,120 @@ function indexOfAny(headers, candidates) {
   }
   return -1;
 }
+
 function maxDateISO(records) {
   if (!records.length) return null;
   return records.reduce((max, r) => (r.dateISO > max ? r.dateISO : max), records[0].dateISO);
 }
+
 function minDateISO(records) {
   if (!records.length) return null;
   return records.reduce((min, r) => (r.dateISO < min ? r.dateISO : min), records[0].dateISO);
 }
+
+function daysBetweenISO(aISO, bISO) {
+  const a = new Date(aISO + "T00:00:00");
+  const b = new Date(bISO + "T00:00:00");
+  return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
 function isoAddDays(dateISO, n) {
   const d = new Date(dateISO + "T00:00:00");
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
 }
-function daysBetweenISO(aISO, bISO) {
-  const a = new Date(aISO + "T00:00:00");
-  const b = new Date(bISO + "T00:00:00");
-  return Math.round((b - a) / (1000*60*60*24));
+
+function escapeHtml(s) {
+  return String(s || "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#39;");
 }
 
-/* =========================
-   Marker + categorization
-========================= */
+/* =========================================================
+   2) Normalization + Categorization Engine
+========================================================= */
+function normalizeMerchant(name, memo) {
+  const base = (name || "").replace(/\s+/g, " ").trim();
+  const m = (memo || "").replace(/\s+/g, " ").trim();
+  const s = base || m || "";
+  return s;
+}
+
 function isMarkerRow(txType, name, memo) {
   const t = (txType || "").toLowerCase().trim();
   const n = (name || "").toLowerCase();
   const m = (memo || "").toLowerCase();
   return (t === "balance") || n.includes("starting balance") || m.includes("starting balance");
 }
-function categorize(txType, name, memo, amount) {
-  if (isMarkerRow(txType, name, memo)) return "Starting Balance";
 
-  const N = (name || "").toUpperCase();
-  const M = (memo || "").toUpperCase();
-  const T = (txType || "").toUpperCase();
-
-  if (N.includes("PAYMENT TO CREDIT CARD") || M.includes("PAYMENT TO CREDIT CARD") || N.includes("CREDIT CARD PAYMENT") || M.includes("CREDIT CARD PAYMENT"))
-    return "Transfer";
-
-  if (N.includes("FIDELITY") || M.includes("FIDELITY") || N.includes("FID BKG") || M.includes("FID BKG")) return "Investing";
-  if (N.includes("SPECTRUM") || M.includes("SPECTRUM") || N.includes("WE ENERGIES") || M.includes("WE ENERGIES")) return "Utilities";
-  if (N.includes("US CELL") || M.includes("USCELL") || N.includes("VERIZON") || M.includes("VERIZON")) return "Phone";
-  if (N.includes("KWIK TRIP") || M.includes("KWIK TRIP") || N.includes("EXXON") || M.includes("EXXON") || N.includes("SHELL") || M.includes("SHELL")) return "Gas";
-  if (N.includes("PICK N SAVE") || M.includes("PICK N SAVE") || N.includes("KROGER") || M.includes("KROGER") || N.includes("COSTCO") || M.includes("COSTCO")) return "Groceries";
-  if (N.includes("AMAZON") || M.includes("AMAZON") || N.includes("TARGET") || M.includes("TARGET") || N.includes("WALMART") || M.includes("WALMART")) return "Shopping";
-  if (N.includes("DISNEY") || M.includes("DISNEY") || N.includes("APPLE") || M.includes("APPLE") || N.includes("NETFLIX") || M.includes("NETFLIX") || N.includes("CHATGPT") || M.includes("CHATGPT")) return "Subscriptions";
-  if (T === "CREDIT" && (N.includes("PAYROLL") || M.includes("PAYROLL") || N.includes("DIRECT DEP") || M.includes("DIRECT DEP") || N.includes("DEPOSIT") || M.includes("DEPOSIT"))) return "Income";
-
-  return "Other";
+function applyRulesCategory(merchant) {
+  const m = (merchant || "").toLowerCase();
+  for (const rule of userRules) {
+    if (!rule || !rule.contains || !rule.category) continue;
+    if (m.includes(String(rule.contains).toLowerCase())) return rule.category;
+  }
+  return null;
 }
 
-/* =========================
-   Import
-========================= */
+function heuristicCategory(txType, merchant, memo, amount) {
+  const t = (txType || "").toUpperCase();
+  const n = (merchant || "").toUpperCase();
+  const m = (memo || "").toUpperCase();
+
+  // Transfers
+  if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return "Transfer";
+  if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
+
+  // Investing
+  if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
+
+  // Common categories
+  if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
+  if (n.includes("WE ENERGIES") || m.includes("WE ENERGIES")) return "Utilities";
+  if (n.includes("US CELL") || n.includes("USCELL") || m.includes("USCELL")) return "Phone";
+  if (n.includes("VERIZON") || m.includes("VERIZON")) return "Phone";
+  if (n.includes("KWIK TRIP") || n.includes("EXXON") || n.includes("SHELL") || m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL")) return "Gas";
+  if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
+  if (n.includes("TARGET") || m.includes("TARGET")) return "Shopping";
+  if (n.includes("WALMART") || m.includes("WALMART")) return "Shopping";
+  if (n.includes("PICK N SAVE") || n.includes("KROGER") || m.includes("PICK N SAVE") || m.includes("KROGER")) return "Groceries";
+  if (n.includes("COSTCO") || m.includes("COSTCO")) return "Groceries";
+
+  // Subscriptions
+  if (n.includes("DISNEY") || n.includes("APPLE") || n.includes("NETFLIX") || n.includes("HULU") || n.includes("SPOTIFY") || n.includes("CHATGPT")
+      || m.includes("DISNEY") || m.includes("APPLE") || m.includes("NETFLIX") || m.includes("HULU") || m.includes("SPOTIFY") || m.includes("CHATGPT")) {
+    return "Subscriptions";
+  }
+
+  // Income guess
+  if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) {
+    return "Income";
+  }
+
+  return amount < 0 ? "Other" : "Other";
+}
+
+function categorize(txType, name, memo, amount) {
+  if (isMarkerRow(txType, name, memo)) return "Starting Balance";
+  const merchant = normalizeMerchant(name, memo);
+  const ruleCat = applyRulesCategory(merchant);
+  if (ruleCat) return ruleCat;
+  return heuristicCategory(txType, merchant, memo, amount);
+}
+
+function recategorizeAll() {
+  allTransactions = allTransactions.map(t => {
+    if (t.category === "Starting Balance") return t;
+    const merchant = normalizeMerchant(t.name, t.memo);
+    const cat = categorize(t.txType, t.name, t.memo, t.amount);
+    return { ...t, merchant, category: cat };
+  });
+  saveAll();
+}
+
+/* =========================================================
+   3) Import Pipeline (CSV → schema → dedupe) + AUTO RANGE
+========================================================= */
 async function importCSVFile(file) {
   const text = await file.text();
   const rows = parseCSV(text);
@@ -299,7 +479,9 @@ async function importCSVFile(file) {
   const iMemo = indexOfAny(header, ["Memo", "Details", "Note"]);
   const iAmt  = indexOfAny(header, ["Amount", "Transaction Amount"]);
 
-  if (iDate < 0 || iName < 0 || iAmt < 0) throw new Error("Missing required columns. Need Date + Name + Amount.");
+  if (iDate < 0 || iName < 0 || iAmt < 0) {
+    throw new Error("Missing required columns. Need at least: Date + Name + Amount.");
+  }
 
   let added = 0, skipped = 0, failed = 0;
   const debugRows = [];
@@ -316,33 +498,42 @@ async function importCSVFile(file) {
       const d = parseUSDate(dateStr);
       if (!d || amount === null) { failed++; continue; }
 
-      const dateISO = d.toISOString().slice(0,10);
+      const dateISO = d.toISOString().slice(0, 10);
       const month = yyyymmFromDate(d);
 
       minISO = (!minISO || dateISO < minISO) ? dateISO : minISO;
       maxISO = (!maxISO || dateISO > maxISO) ? dateISO : maxISO;
 
+      const merchant = normalizeMerchant(name, memo);
       const category = categorize(txType, name, memo, amount);
 
+      // Dedup key
       const key = `${dateISO}|${(txType||"").toUpperCase()}|${name}|${memo}|${amount.toFixed(2)}`;
       if (allTransactions.some(t => t.key === key)) { skipped++; continue; }
 
-      allTransactions.push({ key, dateISO, month, txType, name, memo, amount, category });
+      const record = { key, dateISO, month, txType, name, memo, merchant, amount, category };
+      allTransactions.push(record);
       added++;
-      if (debugRows.length < 6) debugRows.push(allTransactions[allTransactions.length-1]);
+      if (debugRows.length < 6) debugRows.push(record);
     } catch {
       failed++;
     }
   }
 
-  importMeta.push({ fileName:file.name, importedAtISO:new Date().toISOString(), added, skipped, failed, range:{minISO,maxISO} });
+  importMeta.push({
+    fileName: file.name,
+    importedAtISO: new Date().toISOString(),
+    added, skipped, failed,
+    range: { minISO, maxISO }
+  });
+
   saveAll();
-  return { added, skipped, failed, debugRows, range:{minISO,maxISO} };
+  return { added, skipped, failed, debugRows, range: { minISO, maxISO } };
 }
 
-/* =========================
-   Scope filtering
-========================= */
+/* =========================================================
+   4) Range / Scope selection (THIS IS THE KEY FIX)
+========================================================= */
 function getDataRange() {
   return { minISO: minDateISO(allTransactions) || "", maxISO: maxDateISO(allTransactions) || "" };
 }
@@ -376,104 +567,269 @@ function filterToScope(tx, scope) {
   return tx.filter(t => t.dateISO >= s && t.dateISO <= e);
 }
 
-/* =========================
-   Totals + balance
-========================= */
+/* =========================================================
+   5) Totals + Running balance
+========================================================= */
 function scopeTotals(scopeTxAll) {
   const scopeTx = scopeTxAll.filter(t => t.category !== "Starting Balance");
+
   const income = scopeTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
   const outflows = scopeTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  const transferOut = scopeTx.filter(t => t.category==="Transfer" && t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
-  const transferIn  = scopeTx.filter(t => t.category==="Transfer" && t.amount>0).reduce((s,t)=>s+t.amount,0);
+  const transferOut = scopeTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const transferIn  = scopeTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
   const transfers = transferIn - transferOut;
 
-  const spending = scopeTx.filter(t=>t.amount<0).filter(t=>t.category!=="Transfer").reduce((s,t)=>s+Math.abs(t.amount),0);
-  const netChange = scopeTx.reduce((s,t)=>s + Number(t.amount||0), 0);
+  const spending = scopeTx
+    .filter(t => t.amount < 0)
+    .filter(t => t.category !== "Transfer")
+    .reduce((s,t)=>s+Math.abs(t.amount),0);
+
+  const netChange = scopeTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
 
   return { income, outflows, transfers, spending, netChange, scopeTxAll, scopeTx };
 }
 
 function computeRunningBalanceAt(endISO) {
-  if (!endISO) return { runningBal:null, explain:"No end date." };
+  if (!endISO) return { runningBal: null, explain: "No end date." };
 
   const markers = allTransactions
     .filter(t => t.category === "Starting Balance")
     .slice()
-    .sort((a,b)=>a.dateISO>b.dateISO?1:-1);
+    .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
 
   const candidates = markers.filter(m => m.dateISO <= endISO);
-  const anchor = candidates.length ? candidates[candidates.length-1] : null;
+  const anchor = candidates.length ? candidates[candidates.length - 1] : null;
 
-  if (!anchor) return { runningBal:null, explain:`No starting balance marker found on/before ${endISO}.` };
+  if (!anchor) return { runningBal: null, explain: `No starting balance marker found on/before ${endISO}.` };
 
   const scope = allTransactions
     .filter(t => t.category !== "Starting Balance")
     .filter(t => t.dateISO >= anchor.dateISO && t.dateISO <= endISO);
 
-  const netSince = scope.reduce((s,t)=>s + Number(t.amount||0), 0);
-  return { runningBal: anchor.amount + netSince, explain:`Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${endISO}` };
+  const netSinceAnchor = scope.reduce((s,t)=>s + Number(t.amount || 0), 0);
+  return {
+    runningBal: anchor.amount + netSinceAnchor,
+    explain: `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${endISO}`
+  };
 }
 
-/* =========================
-   Pie chart (no libs)
-========================= */
-function hashToHue(str) { let h=0; for (let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))>>>0; return h%360; }
+/* =========================================================
+   6) Smart Insights
+========================================================= */
+function groupBy(arr, keyFn) {
+  const m = new Map();
+  for (const x of arr) {
+    const k = keyFn(x);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(x);
+  }
+  return m;
+}
+
+function median(nums) {
+  const a = nums.slice().sort((x,y)=>x-y);
+  if (!a.length) return 0;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid-1] + a[mid]) / 2;
+}
+
+function detectRecurring(transactions) {
+  const tx = transactions
+    .filter(t => t.category !== "Starting Balance")
+    .filter(t => t.amount < 0)
+    .filter(t => t.category !== "Transfer");
+
+  const byMerchant = groupBy(tx, t => (t.merchant || t.name || "").toLowerCase().trim());
+  const results = [];
+
+  for (const [merchantKey, items] of byMerchant.entries()) {
+    if (!merchantKey) continue;
+    if (items.length < 3) continue;
+
+    const months = new Set(items.map(i => i.month));
+    if (months.size < 2) continue;
+
+    const amts = items.map(i => Math.abs(i.amount));
+    const med = median(amts);
+    if (med <= 0) continue;
+
+    const within = amts.filter(a => Math.abs(a - med) / med <= 0.15).length;
+    const stability = within / amts.length;
+
+    const doms = items.map(i => parseInt(i.dateISO.slice(8,10), 10));
+    const domMed = median(doms);
+    const domWithin = doms.filter(d => Math.abs(d - domMed) <= 3).length / doms.length;
+
+    const score = 0.55 * stability + 0.45 * domWithin;
+    if (score < 0.6) continue;
+
+    const name = items[0].merchant || items[0].name || "Unknown";
+    const likely = (med < 40) ? "Subscription" : "Bill";
+    results.push({ name, likely, typicalAmount: med, monthsCount: months.size, occurrences: items.length, score });
+  }
+
+  results.sort((a,b)=>b.score - a.score);
+  return results.slice(0, 12);
+}
+
+function detectPaychecks(transactions) {
+  const credits = transactions
+    .filter(t => t.category !== "Starting Balance")
+    .filter(t => t.amount > 0);
+
+  if (credits.length < 3) return { summary: "No paycheck pattern yet", paychecks: [], spikes: [] };
+
+  const payrollish = credits.filter(t => {
+    const n = (t.name || "").toUpperCase();
+    const m = (t.memo || "").toUpperCase();
+    const cat = (t.category || "");
+    if (cat === "Income") return true;
+    if (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP")) return true;
+    return t.amount >= 500;
+  });
+
+  if (payrollish.length < 3) return { summary: "No paycheck pattern yet", paychecks: [], spikes: [] };
+
+  const sorted = payrollish.slice().sort((a,b)=>a.dateISO > b.dateISO ? 1 : -1);
+
+  const intervals = [];
+  for (let i=1; i<sorted.length; i++) intervals.push(daysBetweenISO(sorted[i-1].dateISO, sorted[i].dateISO));
+  const intervalMed = median(intervals);
+  const biweekly = intervalMed >= 13 && intervalMed <= 15;
+
+  const amounts = sorted.map(t => t.amount);
+  const base = median(amounts);
+
+  const spikes = sorted
+    .filter(t => t.amount > base * 1.10)
+    .map(t => ({ dateISO: t.dateISO, amount: t.amount, delta: t.amount - base }))
+    .slice(-6);
+
+  const summary =
+    biweekly
+      ? `Biweekly pattern detected • baseline ${money(base)}`
+      : `Paycheck-like credits detected • baseline ${money(base)} (interval median: ~${Math.round(intervalMed)} days)`;
+
+  return { summary, paychecks: sorted.slice(-8), spikes };
+}
+
+/* =========================================================
+   7) Reconciliation
+========================================================= */
+function buildReconciliation() {
+  if (!allTransactions.length) return { line: "No imports yet", details: "" };
+
+  const minISO = minDateISO(allTransactions);
+  const maxISO = maxDateISO(allTransactions);
+
+  const dates = new Set(allTransactions.map(t => t.dateISO));
+  const gaps = [];
+  let cursor = minISO;
+  let inGap = null;
+
+  while (cursor <= maxISO) {
+    const has = dates.has(cursor);
+    if (!has && !inGap) inGap = { start: cursor, end: cursor };
+    if (!has && inGap) inGap.end = cursor;
+    if (has && inGap) { gaps.push(inGap); inGap = null; }
+    cursor = isoAddDays(cursor, 1);
+  }
+  if (inGap) gaps.push(inGap);
+
+  const bigGaps = gaps.filter(g => daysBetweenISO(g.start, g.end) + 1 >= 4).slice(0, 8);
+  const lastImport = importMeta.length ? importMeta[importMeta.length - 1] : null;
+
+  const line = lastImport
+    ? `Last import: +${lastImport.added} (skipped ${lastImport.skipped}, failed ${lastImport.failed}) • Data range ${minISO} → ${maxISO}`
+    : `Data range ${minISO} → ${maxISO}`;
+
+  const details = bigGaps.length
+    ? `Potential missing date gaps (≥4 days): ` + bigGaps.map(g => `${g.start}→${g.end}`).join(" • ")
+    : `No large missing-date gaps detected (weekends ignored by threshold).`;
+
+  return { line, details };
+}
+
+/* =========================================================
+   8) Charts (simple pie)
+========================================================= */
+function hashToHue(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
 function drawPie(canvas, data, title) {
   const ctx = canvas.getContext("2d");
-  const W=canvas.width, H=canvas.height;
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle="#0f1726"; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle="#e8eefc"; ctx.font="900 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  const W = canvas.width;
+  const H = canvas.height;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f1726";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#e8eefc";
+  ctx.font = "900 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
   ctx.fillText(title, 18, 28);
 
-  const total = data.reduce((s,d)=>s+d.value,0);
+  const total = data.reduce((s, d) => s + d.value, 0);
   if (!total) {
-    ctx.fillStyle="#9fb0d0"; ctx.font="600 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
-    ctx.fillText("No data in this scope.", 18, 60);
+    ctx.fillStyle = "#9fb0d0";
+    ctx.font = "600 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+    ctx.fillText("No data for this scope.", 18, 60);
     return;
   }
 
-  const cx=Math.round(W*0.30), cy=Math.round(H*0.55), r=Math.round(Math.min(W,H)*0.30);
-  let start=-Math.PI/2;
+  const cx = Math.round(W * 0.30);
+  const cy = Math.round(H * 0.55);
+  const r = Math.round(Math.min(W, H) * 0.30);
 
+  let start = -Math.PI / 2;
   for (const d of data) {
-    const frac=d.value/total;
-    const end=start+frac*Math.PI*2;
-    const hue=hashToHue(d.label);
-    ctx.fillStyle=`hsl(${hue} 70% 55%)`;
-    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,start,end); ctx.closePath(); ctx.fill();
-    start=end;
+    const frac = d.value / total;
+    const end = start + frac * Math.PI * 2;
+    const hue = hashToHue(d.label);
+    ctx.fillStyle = `hsl(${hue} 70% 55%)`;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, end);
+    ctx.closePath();
+    ctx.fill();
+    start = end;
   }
 
-  ctx.fillStyle="#0f1726";
-  ctx.beginPath(); ctx.arc(cx,cy,Math.round(r*0.55),0,Math.PI*2); ctx.fill();
-  ctx.fillStyle="#e8eefc"; ctx.font="900 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
-  ctx.fillText(money(total), cx-55, cy+6);
+  ctx.fillStyle = "#0f1726";
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.round(r * 0.55), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#e8eefc";
+  ctx.font = "900 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText(money(total), cx - 55, cy + 6);
 }
 
-/* =========================
-   UI + Dashboard
-========================= */
+/* =========================================================
+   9) UI wiring
+========================================================= */
 const els = {
+  viewMode: document.getElementById("viewMode"),
+  rangeWrap: document.getElementById("rangeWrap"),
+  monthWrap: document.getElementById("monthWrap"),
+  rangeStart: document.getElementById("rangeStart"),
+  rangeEnd: document.getElementById("rangeEnd"),
+  rangeToAllDataBtn: document.getElementById("rangeToAllDataBtn"),
+  rangeLast90Btn: document.getElementById("rangeLast90Btn"),
+  rangeThisMonthBtn: document.getElementById("rangeThisMonthBtn"),
+  monthSelect: document.getElementById("monthSelect"),
+  chartMode: document.getElementById("chartMode"),
+  pieCanvas: document.getElementById("pieCanvas"),
+  pieLegend: document.getElementById("pieLegend"),
+
   scopePill: document.getElementById("scopePill"),
   topLine: document.getElementById("topLine"),
   topSub: document.getElementById("topSub"),
   balanceSub: document.getElementById("balanceSub"),
-
-  viewMode: document.getElementById("viewMode"),
-  rangeWrap: document.getElementById("rangeWrap"),
-  rangeStart: document.getElementById("rangeStart"),
-  rangeEnd: document.getElementById("rangeEnd"),
-  rangeToDataBtn: document.getElementById("rangeToDataBtn"),
-  rangeLast90Btn: document.getElementById("rangeLast90Btn"),
-
-  monthWrap: document.getElementById("monthWrap"),
-  monthSelect: document.getElementById("monthSelect"),
-
-  chartMode: document.getElementById("chartMode"),
-  pieCanvas: document.getElementById("pieCanvas"),
-  pieLegend: document.getElementById("pieLegend"),
 
   income: document.getElementById("income"),
   outflows: document.getElementById("outflows"),
@@ -482,6 +838,13 @@ const els = {
   netChange: document.getElementById("netChange"),
   balanceBox: document.getElementById("balanceBox"),
   balanceHint: document.getElementById("balanceHint"),
+
+  recurringCount: document.getElementById("recurringCount"),
+  recurringList: document.getElementById("recurringList"),
+  paycheckSummary: document.getElementById("paycheckSummary"),
+  paycheckList: document.getElementById("paycheckList"),
+  reconLine: document.getElementById("reconLine"),
+  reconDetails: document.getElementById("reconDetails"),
 
   fileInput: document.getElementById("fileInput"),
   importBtn: document.getElementById("importBtn"),
@@ -492,12 +855,103 @@ const els = {
 
   countPill: document.getElementById("countPill"),
   tableBody: document.getElementById("tableBody"),
+
+  ruleContains: document.getElementById("ruleContains"),
+  ruleCategory: document.getElementById("ruleCategory"),
+  addRuleBtn: document.getElementById("addRuleBtn"),
+  reapplyRulesBtn: document.getElementById("reapplyRulesBtn"),
+  clearRulesBtn: document.getElementById("clearRulesBtn"),
+  rulesTableWrap: document.getElementById("rulesTableWrap")
 };
 
 function updateViewModeUI() {
   const mode = els.viewMode.value;
   els.rangeWrap.style.display = (mode === "range") ? "" : "none";
   els.monthWrap.style.display = (mode === "month") ? "" : "none";
+}
+
+function buildCategoryBreakdown(scopeTx) {
+  const spend = scopeTx
+    .filter(t => t.amount < 0)
+    .filter(t => t.category !== "Transfer");
+
+  const byCat = new Map();
+  for (const t of spend) {
+    const cat = t.category || "Other";
+    byCat.set(cat, (byCat.get(cat) || 0) + Math.abs(t.amount));
+  }
+
+  const data = Array.from(byCat.entries()).map(([label, value]) => ({ label, value }));
+  data.sort((a,b)=>b.value - a.value);
+  return data;
+}
+
+function updateRulesTable() {
+  if (!userRules.length) {
+    els.rulesTableWrap.innerHTML = `<p class="small">No rules yet.</p>`;
+    return;
+  }
+
+  const rows = userRules.map((r, idx) => `
+    <tr>
+      <td class="mono">${idx + 1}</td>
+      <td class="mono">${escapeHtml(r.contains || "")}</td>
+      <td>${escapeHtml(r.category || "")}</td>
+      <td><button class="ghost" data-del="${idx}">Delete</button></td>
+      <td><button class="ghost" data-up="${idx}">Up</button></td>
+      <td><button class="ghost" data-down="${idx}">Down</button></td>
+    </tr>
+  `).join("");
+
+  els.rulesTableWrap.innerHTML = `
+    <div style="overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Contains</th><th>Category</th><th></th><th></th><th></th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  els.rulesTableWrap.querySelectorAll("button[data-del]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-del"));
+      userRules.splice(i, 1);
+      saveAll();
+      updateRulesTable();
+      recategorizeAll();
+      updateDashboard();
+    });
+  });
+
+  els.rulesTableWrap.querySelectorAll("button[data-up]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-up"));
+      if (i <= 0) return;
+      const tmp = userRules[i-1];
+      userRules[i-1] = userRules[i];
+      userRules[i] = tmp;
+      saveAll();
+      updateRulesTable();
+      recategorizeAll();
+      updateDashboard();
+    });
+  });
+
+  els.rulesTableWrap.querySelectorAll("button[data-down]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-down"));
+      if (i >= userRules.length - 1) return;
+      const tmp = userRules[i+1];
+      userRules[i+1] = userRules[i];
+      userRules[i] = tmp;
+      saveAll();
+      updateRulesTable();
+      recategorizeAll();
+      updateDashboard();
+    });
+  });
 }
 
 function updateDashboard() {
@@ -508,17 +962,20 @@ function updateDashboard() {
   const totals = scopeTotals(scopeTxAll);
 
   els.scopePill.textContent = scope.label;
+
   els.topLine.textContent = money(totals.spending);
-  els.topSub.textContent = `Spending (transfers excluded)`;
+  els.topSub.textContent = `Spending (transfers excluded) • ${scope.label}`;
+
   els.income.textContent = money(totals.income);
   els.outflows.textContent = money(totals.outflows);
   els.spending.textContent = money(totals.spending);
   els.transfers.textContent = money(totals.transfers);
   els.netChange.textContent = money(totals.netChange);
 
+  // Running balance as-of scope end
   const bal = computeRunningBalanceAt(scope.endISO);
   if (bal.runningBal === null) {
-    els.balanceSub.innerHTML = `<span class="warn">Running balance unavailable</span> • ${bal.explain}`;
+    els.balanceSub.innerHTML = `<span class="warn">Running balance unavailable</span> • ${escapeHtml(bal.explain)}`;
     els.balanceBox.textContent = "(missing)";
     els.balanceHint.textContent = bal.explain;
   } else {
@@ -527,61 +984,80 @@ function updateDashboard() {
     els.balanceHint.textContent = bal.explain;
   }
 
-  // Pie data
+  // Pie chart
   if (els.chartMode.value === "cashflow") {
-    drawPie(els.pieCanvas, [
-      { label:"Income", value: totals.income },
-      { label:"Outflows", value: totals.outflows },
-    ], `Cashflow • ${scope.startISO} → ${scope.endISO}`);
-    els.pieLegend.textContent = `Income ${money(totals.income)} • Outflows ${money(totals.outflows)}`;
+    const data = [
+      { label: "Income", value: totals.income },
+      { label: "Outflows", value: totals.outflows }
+    ];
+    drawPie(els.pieCanvas, data, `Cashflow • ${scope.startISO} → ${scope.endISO}`);
+    els.pieLegend.textContent = `Income: ${money(totals.income)} • Outflows: ${money(totals.outflows)}`;
   } else {
-    const spend = totals.scopeTx.filter(t => t.amount < 0).filter(t => t.category !== "Transfer");
-    const byCat = new Map();
-    for (const t of spend) {
-      const c = t.category || "Other";
-      byCat.set(c, (byCat.get(c) || 0) + Math.abs(t.amount));
-    }
-    const data = Array.from(byCat.entries()).map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value);
-    drawPie(els.pieCanvas, data, `Spending by Category • ${scope.startISO} → ${scope.endISO}`);
-    els.pieLegend.textContent = data.slice(0,6).map(d => `${d.label}: ${money(d.value)}`).join(" • ") || "No spending data.";
+    const catData = buildCategoryBreakdown(totals.scopeTx);
+    drawPie(els.pieCanvas, catData, `Spending by Category • ${scope.startISO} → ${scope.endISO}`);
+    els.pieLegend.textContent = catData.slice(0,6).map(d => `${d.label}: ${money(d.value)}`).join(" • ") || "No spending data.";
   }
+
+  // Smart insights (all history)
+  const recurring = detectRecurring(allTransactions);
+  els.recurringCount.textContent = String(recurring.length);
+  els.recurringList.innerHTML = recurring.length
+    ? recurring.map(r =>
+        `<span class="chip"><span class="tag">${r.likely}</span><b>${escapeHtml(r.name)}</b><span class="mono">${money(r.typicalAmount)}</span></span>`
+      ).join("")
+    : `<span class="hint">Not enough history yet. Import 2+ months of data and this will light up.</span>`;
+
+  const paycheck = detectPaychecks(allTransactions);
+  els.paycheckSummary.textContent = paycheck.summary;
+  const lastChecks = paycheck.paychecks.length
+    ? `<div class="small"><b>Recent paycheck-like credits:</b> ${paycheck.paychecks.map(p => `${p.dateISO} ${money(p.amount)}`).join(" • ")}</div>`
+    : `<div class="small hint">Need more credit history to detect paychecks.</div>`;
+  const spikeLines = paycheck.spikes.length
+    ? `<div class="small"><b>Overtime spikes:</b> ${paycheck.spikes.map(s => `${s.dateISO} ${money(s.amount)} (+${money(s.delta)})`).join(" • ")}</div>`
+    : `<div class="small hint">No overtime spikes detected (yet).</div>`;
+  els.paycheckList.innerHTML = lastChecks + spikeLines;
+
+  const recon = buildReconciliation();
+  els.reconLine.textContent = recon.line;
+  els.reconDetails.textContent = recon.details;
 
   // Table
   els.countPill.textContent = `${totals.scopeTxAll.length} rows`;
   els.tableBody.innerHTML = "";
+
   totals.scopeTxAll
     .slice()
-    .sort((a,b)=>a.dateISO<b.dateISO?1:-1)
+    .sort((a,b) => a.dateISO < b.dateISO ? 1 : -1)
     .slice(0, 900)
     .forEach(t => {
       const amtClass = t.amount >= 0 ? "pos" : "neg";
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
+      const row = document.createElement("tr");
+      row.innerHTML = `
         <td class="mono">${t.dateISO}</td>
-        <td class="mono">${t.txType || ""}</td>
-        <td>${t.name}</td>
-        <td>${t.memo || ""}</td>
-        <td><span class="pill">${t.category || "Other"}</span></td>
+        <td class="mono">${escapeHtml(t.txType || "")}</td>
+        <td>${escapeHtml(t.merchant || t.name || "")}</td>
+        <td>${escapeHtml(t.memo || "")}</td>
+        <td><span class="pill">${escapeHtml(t.category || "Other")}</span></td>
         <td class="mono right ${amtClass}">${money(t.amount)}</td>
       `;
-      els.tableBody.appendChild(tr);
+      els.tableBody.appendChild(row);
     });
 }
 
-/* =========================
-   Buttons / Events
-========================= */
+/* =========================================================
+   10) Events / Buttons
+========================================================= */
 els.viewMode.addEventListener("change", updateDashboard);
 els.rangeStart.addEventListener("change", updateDashboard);
 els.rangeEnd.addEventListener("change", updateDashboard);
 els.monthSelect.addEventListener("change", updateDashboard);
 els.chartMode.addEventListener("change", updateDashboard);
 
-els.rangeToDataBtn.addEventListener("click", () => {
+els.rangeToAllDataBtn.addEventListener("click", () => {
   const { minISO, maxISO } = getDataRange();
+  els.viewMode.value = "range";
   els.rangeStart.value = minISO || "";
   els.rangeEnd.value = maxISO || "";
-  els.viewMode.value = "range";
   updateDashboard();
 });
 
@@ -591,43 +1067,62 @@ els.rangeLast90Btn.addEventListener("click", () => {
   const endDate = new Date(end + "T00:00:00");
   const startDate = new Date(endDate);
   startDate.setDate(startDate.getDate() - 90);
+  els.viewMode.value = "range";
   els.rangeStart.value = startDate.toISOString().slice(0,10);
   els.rangeEnd.value = end;
+  updateDashboard();
+});
+
+els.rangeThisMonthBtn.addEventListener("click", () => {
+  const now = new Date();
+  const month = yyyymmFromDate(now);
+  const startISO = `${month}-01`;
+  const [y,m] = month.split("-").map(n=>parseInt(n,10));
+  const endISO = new Date(y, m, 0).toISOString().slice(0,10);
   els.viewMode.value = "range";
+  els.rangeStart.value = startISO;
+  els.rangeEnd.value = endISO;
   updateDashboard();
 });
 
 els.importBtn.addEventListener("click", async () => {
   const f = els.fileInput.files && els.fileInput.files[0];
-  if (!f) { els.status.textContent = "Pick a CSV first."; return; }
+  if (!f) { els.status.textContent = "Pick a CSV file first."; return; }
 
   els.status.textContent = "Importing…";
   els.debug.textContent = "";
 
   try {
     const res = await importCSVFile(f);
-    els.status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped}, failed ${res.failed}. Range ${res.range.minISO||"?"}→${res.range.maxISO||"?"}`;
 
-    // ✅ THIS IS THE INTUITIVE PART:
-    // After import, automatically switch to Range mode covering the imported CSV
+    // Backfill/normalize + ensure categories consistent
+    recategorizeAll();
+
+    // ✅ KEY BEHAVIOR YOU ASKED FOR:
+    // After every import, automatically scope to THAT file’s date span
     if (res.range.minISO && res.range.maxISO) {
       els.viewMode.value = "range";
       els.rangeStart.value = res.range.minISO;
       els.rangeEnd.value = res.range.maxISO;
     } else {
-      // fallback to full data range
+      // fallback: entire history
       const { minISO, maxISO } = getDataRange();
       els.viewMode.value = "range";
       els.rangeStart.value = minISO || "";
       els.rangeEnd.value = maxISO || "";
     }
 
-    els.debug.textContent = res.debugRows.length
-      ? "Sample:\n" + res.debugRows.map(r => `${r.dateISO} | ${r.txType||""} | ${r.name} | ${money(r.amount)} | ${r.category}`).join("\n")
-      : "No rows parsed.";
+    els.status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Scope set to ${res.range.minISO || "?"} → ${res.range.maxISO || "?"}`;
 
+    els.debug.textContent = res.debugRows.length
+      ? "Parsed sample rows:\n" + res.debugRows.map(r =>
+          `${r.dateISO} | ${r.txType || ""} | "${r.merchant}" | amt=${r.amount} | cat=${r.category}`
+        ).join("\n")
+      : "No rows parsed. If this happens, paste your CSV header row here and I’ll map it.";
+
+    updateRulesTable();
     updateDashboard();
-  } catch(e) {
+  } catch (e) {
     els.status.textContent = `Import failed: ${e.message || e}`;
   } finally {
     els.fileInput.value = "";
@@ -644,33 +1139,74 @@ els.removeMarkersBtn.addEventListener("click", () => {
 });
 
 els.clearBtn.addEventListener("click", () => {
-  if (!confirm("Start fresh? This deletes ALL imported data.")) return;
+  if (!confirm("Start fresh? This deletes ALL imported data AND rules.")) return;
   allTransactions = [];
+  userRules = [];
   importMeta = [];
   localStorage.clear();
   els.status.textContent = "Deleted everything. Import a new CSV to start.";
   els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
+  els.viewMode.value = "range";
   els.rangeStart.value = "";
   els.rangeEnd.value = "";
-  els.viewMode.value = "range";
+  updateRulesTable();
   updateDashboard();
 });
 
-/* =========================
-   Init
-========================= */
+els.addRuleBtn.addEventListener("click", () => {
+  const contains = (els.ruleContains.value || "").trim();
+  const category = els.ruleCategory.value;
+  if (!contains) return;
+
+  userRules.unshift({ contains, category, createdAtISO: new Date().toISOString() });
+  els.ruleContains.value = "";
+  saveAll();
+  updateRulesTable();
+  recategorizeAll();
+  updateDashboard();
+});
+
+els.reapplyRulesBtn.addEventListener("click", () => {
+  recategorizeAll();
+  updateDashboard();
+  els.status.textContent = "Reapplied rules to all transactions.";
+  setTimeout(()=>els.status.textContent="", 1200);
+});
+
+els.clearRulesBtn.addEventListener("click", () => {
+  if (!confirm("Delete ALL rules?")) return;
+  userRules = [];
+  saveAll();
+  updateRulesTable();
+  recategorizeAll();
+  updateDashboard();
+});
+
+/* =========================================================
+   11) Init
+========================================================= */
 (function init() {
   els.monthSelect.value = yyyymmFromDate(new Date());
 
+  // Backfill existing transactions
+  allTransactions = allTransactions.map(t => {
+    const merchant = t.merchant || normalizeMerchant(t.name, t.memo);
+    const category = t.category || categorize(t.txType, t.name, t.memo, t.amount);
+    return { ...t, merchant, category };
+  });
+  saveAll();
+
+  // Default: range = full data range (until first import, then import will auto-set to file range)
   const { minISO, maxISO } = getDataRange();
+  els.viewMode.value = "range";
   els.rangeStart.value = minISO || "";
   els.rangeEnd.value = maxISO || "";
 
-  // Default to range if there is data
-  els.viewMode.value = (minISO && maxISO) ? "range" : "range";
+  updateRulesTable();
   updateDashboard();
 })();
 </script>
+
 </body>
 </html>
