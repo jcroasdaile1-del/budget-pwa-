@@ -634,6 +634,12 @@ function inferImportMode(fileName) {
   return null;
 }
 
+/* ======== NEW helper: treat Transfer as reserved + trimmed ======== */
+function isTransferCat(t) {
+  return (t.category || "").trim() === "Transfer";
+}
+/* ================================================================= */
+
 async function importCSVFile(file, importMode, cardLast4) {
   const text = await file.text();
   const rows = parseCSV(text);
@@ -771,24 +777,31 @@ function filterToScope(tx, scope) {
 function scopeTotals(scopeTxAll) {
   const scopeTx = scopeTxAll.filter(t => t.category !== "Starting Balance");
 
-  // Income/outflows excluding transfers (Model A cashflow)
+  // FIX: Exclude transfers from Income
   const income = scopeTx
     .filter(t => t.amount > 0)
-    .filter(t => t.category !== "Transfer")
+    .filter(t => !isTransferCat(t))
     .reduce((s,t)=>s+t.amount,0);
 
+  // FIX: Exclude transfers from Outflows
   const outflows = scopeTx
     .filter(t => t.amount < 0)
-    .filter(t => t.category !== "Transfer")
+    .filter(t => !isTransferCat(t))
     .reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  const transferOut = scopeTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
-  const transferIn  = scopeTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
+  const transferOut = scopeTx
+    .filter(t => isTransferCat(t) && t.amount < 0)
+    .reduce((s,t)=>s+Math.abs(t.amount),0);
+
+  const transferIn  = scopeTx
+    .filter(t => isTransferCat(t) && t.amount > 0)
+    .reduce((s,t)=>s+t.amount,0);
+
   const transfers = transferIn - transferOut;
 
   const spending = scopeTx
     .filter(t => t.amount < 0)
-    .filter(t => t.category !== "Transfer")
+    .filter(t => !isTransferCat(t))
     .reduce((s,t)=>s+Math.abs(t.amount),0);
 
   const netChange = scopeTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
@@ -846,7 +859,7 @@ function detectRecurring(transactions) {
   const tx = transactions
     .filter(t => t.category !== "Starting Balance")
     .filter(t => t.amount < 0)
-    .filter(t => t.category !== "Transfer");
+    .filter(t => !isTransferCat(t));
 
   const byMerchant = groupBy(tx, t => (t.merchant || t.name || "").toLowerCase().trim());
   const results = [];
@@ -885,7 +898,7 @@ function detectPaychecks(transactions) {
   const credits = transactions
     .filter(t => t.category !== "Starting Balance")
     .filter(t => t.amount > 0)
-    .filter(t => t.category !== "Transfer");
+    .filter(t => !isTransferCat(t));
 
   if (credits.length < 3) return { summary: "No paycheck pattern yet", paychecks: [], spikes: [] };
 
@@ -1066,12 +1079,12 @@ function computeCardScopeStats(scopeTx) {
 
     const spend = tx
       .filter(t => t.amount < 0)
-      .filter(t => t.category !== "Transfer")
+      .filter(t => !isTransferCat(t))
       .reduce((s,t)=>s+Math.abs(t.amount),0);
 
     const payments = tx
       .filter(t => t.amount > 0)
-      .filter(t => t.category === "Transfer") // mobile payment thank you
+      .filter(t => isTransferCat(t)) // mobile payment thank you
       .reduce((s,t)=>s+t.amount,0);
 
     const net = tx.reduce((s,t)=>s+Number(t.amount||0),0);
@@ -1200,10 +1213,10 @@ function updateViewModeUI() {
 }
 
 function buildCategoryBreakdown(scopeTx) {
-  const spend = scopeTx.filter(t => t.amount < 0).filter(t => t.category !== "Transfer");
+  const spend = scopeTx.filter(t => t.amount < 0).filter(t => !isTransferCat(t));
   const byCat = new Map();
   for (const t of spend) {
-    const cat = t.category || "Other";
+    const cat = (t.category || "Other").trim() || "Other";
     byCat.set(cat, (byCat.get(cat) || 0) + Math.abs(t.amount));
   }
   const data = Array.from(byCat.entries()).map(([label, value]) => ({ label, value }));
@@ -1277,10 +1290,7 @@ function updateRulesTable() {
   });
 }
 
-/* ===================== CHANGE START =======================
-   Top headline is now Monthly Performance = Income - Spending
-   (Transfers excluded). No other behavior changes.
-=========================================================== */
+/* ===================== Top headline is Monthly Performance ======================= */
 function updateTopDelta(scope, totals) {
   const monthlyPerformance = Number(totals.income || 0) - Number(totals.spending || 0);
 
@@ -1291,7 +1301,7 @@ function updateTopDelta(scope, totals) {
 
   els.topSub.textContent = `Monthly Performance (Income − Spending, transfers excluded) • ${scope.label}`;
 }
-/* ====================== CHANGE END ======================== */
+/* =============================================================================== */
 
 function renderCardSettings() {
   if (!cardProfiles.length) {
@@ -1399,7 +1409,7 @@ function updateDashboard() {
   // Running balance stays as-is
   const bal = computeRunningBalanceAt(scope.endISO);
 
-  // Top headline now uses Monthly Performance
+  // Top headline uses Monthly Performance
   updateTopDelta(scope, totals);
 
   els.income.textContent = money(totals.income);
@@ -1516,7 +1526,7 @@ function updateDashboard() {
       <td class="mono">${escapeHtml(t.txType || "")}</td>
       <td>${escapeHtml(t.merchant || t.name || "")}</td>
       <td>${escapeHtml(t.memo || "")}</td>
-      <td><span class="pill">${escapeHtml(t.category || "Other")}</span></td>
+      <td><span class="pill">${escapeHtml((t.category || "Other").trim() || "Other")}</span></td>
       <td class="mono right ${amtClass}">${money(t.amount)}</td>
     `;
     els.tableBody.appendChild(row);
