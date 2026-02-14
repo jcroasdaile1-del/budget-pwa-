@@ -43,6 +43,13 @@
     .chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid #24314f; background:#0f1726; font-size:12px; color:#e8eefc; margin:4px 6px 0 0; }
     .right { text-align:right; }
     canvas { max-width:100%; background:#0f1726; border:1px solid #24314f; border-radius:12px; }
+
+    /* legend chips */
+    .legendRow { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .legendItem { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid #24314f; background:#0f1726; }
+    .swatch { width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(255,255,255,0.10); }
+    .legendLabel { color:#e8eefc; font-size:12px; font-weight:800; }
+    .legendValue { color:#9fb0d0; font-size:12px; }
   </style>
 </head>
 
@@ -101,7 +108,8 @@
 
     <div style="margin-top:12px;">
       <canvas id="pieCanvas" width="900" height="360"></canvas>
-      <div id="pieLegend" class="small"></div>
+      <div id="pieLegend" class="legendRow"></div>
+      <div id="pieSummary" class="small"></div>
     </div>
 
     <p class="small">
@@ -326,6 +334,12 @@ function money(n) {
   return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+function moneySigned(n) {
+  const v = Number(n || 0);
+  const prefix = v > 0 ? "+" : "";
+  return prefix + money(v);
+}
+
 function parseUSDate(mmddyyyy) {
   const s = (mmddyyyy || "").trim();
   const parts = s.split("/");
@@ -413,14 +427,11 @@ function heuristicCategory(txType, merchant, memo, amount) {
   const n = (merchant || "").toUpperCase();
   const m = (memo || "").toUpperCase();
 
-  // Transfers
   if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return "Transfer";
   if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
 
-  // Investing
   if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
 
-  // Common categories
   if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
   if (n.includes("WE ENERGIES") || m.includes("WE ENERGIES")) return "Utilities";
   if (n.includes("US CELL") || n.includes("USCELL") || m.includes("USCELL")) return "Phone";
@@ -432,13 +443,11 @@ function heuristicCategory(txType, merchant, memo, amount) {
   if (n.includes("PICK N SAVE") || n.includes("KROGER") || m.includes("PICK N SAVE") || m.includes("KROGER")) return "Groceries";
   if (n.includes("COSTCO") || m.includes("COSTCO")) return "Groceries";
 
-  // Subscriptions
   if (n.includes("DISNEY") || n.includes("APPLE") || n.includes("NETFLIX") || n.includes("HULU") || n.includes("SPOTIFY") || n.includes("CHATGPT")
       || m.includes("DISNEY") || m.includes("APPLE") || m.includes("NETFLIX") || m.includes("HULU") || m.includes("SPOTIFY") || m.includes("CHATGPT")) {
     return "Subscriptions";
   }
 
-  // Income guess
   if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) {
     return "Income";
   }
@@ -507,7 +516,6 @@ async function importCSVFile(file) {
       const merchant = normalizeMerchant(name, memo);
       const category = categorize(txType, name, memo, amount);
 
-      // Dedup key
       const key = `${dateISO}|${(txType||"").toUpperCase()}|${name}|${memo}|${amount.toFixed(2)}`;
       if (allTransactions.some(t => t.key === key)) { skipped++; continue; }
 
@@ -532,7 +540,7 @@ async function importCSVFile(file) {
 }
 
 /* =========================================================
-   4) Range / Scope selection (THIS IS THE KEY FIX)
+   4) Range / Scope selection
 ========================================================= */
 function getDataRange() {
   return { minISO: minDateISO(allTransactions) || "", maxISO: maxDateISO(allTransactions) || "" };
@@ -554,7 +562,6 @@ function getScope() {
     return { mode, startISO, endISO:last, label: `Month ${month}` };
   }
 
-  // range
   const { minISO, maxISO } = getDataRange();
   const startISO = els.rangeStart.value || minISO;
   const endISO = els.rangeEnd.value || maxISO;
@@ -590,8 +597,9 @@ function scopeTotals(scopeTxAll) {
   return { income, outflows, transfers, spending, netChange, scopeTxAll, scopeTx };
 }
 
+/* CHANGED: return anchor + delta from anchor */
 function computeRunningBalanceAt(endISO) {
-  if (!endISO) return { runningBal: null, explain: "No end date." };
+  if (!endISO) return { runningBal: null, explain: "No end date.", anchor: null, deltaFromAnchor: null };
 
   const markers = allTransactions
     .filter(t => t.category === "Starting Balance")
@@ -601,7 +609,7 @@ function computeRunningBalanceAt(endISO) {
   const candidates = markers.filter(m => m.dateISO <= endISO);
   const anchor = candidates.length ? candidates[candidates.length - 1] : null;
 
-  if (!anchor) return { runningBal: null, explain: `No starting balance marker found on/before ${endISO}.` };
+  if (!anchor) return { runningBal: null, explain: `No starting balance marker found on/before ${endISO}.`, anchor: null, deltaFromAnchor: null };
 
   const scope = allTransactions
     .filter(t => t.category !== "Starting Balance")
@@ -610,6 +618,8 @@ function computeRunningBalanceAt(endISO) {
   const netSinceAnchor = scope.reduce((s,t)=>s + Number(t.amount || 0), 0);
   return {
     runningBal: anchor.amount + netSinceAnchor,
+    deltaFromAnchor: netSinceAnchor,
+    anchor,
     explain: `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${endISO}`
   };
 }
@@ -752,12 +762,16 @@ function buildReconciliation() {
 }
 
 /* =========================================================
-   8) Charts (simple pie)
+   8) Charts + Legend colors
 ========================================================= */
 function hashToHue(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return h % 360;
+}
+function colorForLabel(label) {
+  const hue = hashToHue(String(label || ""));
+  return `hsl(${hue} 70% 55%)`;
 }
 
 function drawPie(canvas, data, title) {
@@ -789,8 +803,7 @@ function drawPie(canvas, data, title) {
   for (const d of data) {
     const frac = d.value / total;
     const end = start + frac * Math.PI * 2;
-    const hue = hashToHue(d.label);
-    ctx.fillStyle = `hsl(${hue} 70% 55%)`;
+    ctx.fillStyle = colorForLabel(d.label);
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, start, end);
@@ -809,6 +822,24 @@ function drawPie(canvas, data, title) {
   ctx.fillText(money(total), cx - 55, cy + 6);
 }
 
+function renderLegend(data, maxItems) {
+  const top = data.slice().sort((a,b)=>b.value-a.value).slice(0, maxItems);
+  if (!top.length) {
+    els.pieLegend.innerHTML = "";
+    return;
+  }
+  els.pieLegend.innerHTML = top.map(d => {
+    const c = colorForLabel(d.label);
+    return `
+      <div class="legendItem">
+        <span class="swatch" style="background:${c}"></span>
+        <span class="legendLabel">${escapeHtml(d.label)}</span>
+        <span class="legendValue">${money(d.value)}</span>
+      </div>
+    `;
+  }).join("");
+}
+
 /* =========================================================
    9) UI wiring
 ========================================================= */
@@ -825,6 +856,7 @@ const els = {
   chartMode: document.getElementById("chartMode"),
   pieCanvas: document.getElementById("pieCanvas"),
   pieLegend: document.getElementById("pieLegend"),
+  pieSummary: document.getElementById("pieSummary"),
 
   scopePill: document.getElementById("scopePill"),
   topLine: document.getElementById("topLine"),
@@ -954,6 +986,27 @@ function updateRulesTable() {
   });
 }
 
+/* CHANGED: top KPI becomes delta from anchor; colored pos/neg */
+function updateTopDelta(balInfo, scope, totals) {
+  // Default to netChange if no anchor (still useful), but your preference is anchor delta
+  const delta = (balInfo && balInfo.deltaFromAnchor !== null && balInfo.deltaFromAnchor !== undefined)
+    ? balInfo.deltaFromAnchor
+    : totals.netChange;
+
+  els.topLine.textContent = moneySigned(delta);
+
+  // color
+  els.topLine.classList.remove("pos", "neg");
+  if (delta > 0) els.topLine.classList.add("pos");
+  else if (delta < 0) els.topLine.classList.add("neg");
+
+  if (balInfo && balInfo.anchor) {
+    els.topSub.textContent = `Change vs starting balance (${money(balInfo.anchor.amount)} on ${balInfo.anchor.dateISO}) • ${scope.label}`;
+  } else {
+    els.topSub.textContent = `Net change in scope (no balance marker found) • ${scope.label}`;
+  }
+}
+
 function updateDashboard() {
   updateViewModeUI();
 
@@ -963,8 +1016,10 @@ function updateDashboard() {
 
   els.scopePill.textContent = scope.label;
 
-  els.topLine.textContent = money(totals.spending);
-  els.topSub.textContent = `Spending (transfers excluded) • ${scope.label}`;
+  // Running balance as-of scope end (for both top delta and balance card)
+  const bal = computeRunningBalanceAt(scope.endISO);
+
+  updateTopDelta(bal, scope, totals);
 
   els.income.textContent = money(totals.income);
   els.outflows.textContent = money(totals.outflows);
@@ -972,8 +1027,6 @@ function updateDashboard() {
   els.transfers.textContent = money(totals.transfers);
   els.netChange.textContent = money(totals.netChange);
 
-  // Running balance as-of scope end
-  const bal = computeRunningBalanceAt(scope.endISO);
   if (bal.runningBal === null) {
     els.balanceSub.innerHTML = `<span class="warn">Running balance unavailable</span> • ${escapeHtml(bal.explain)}`;
     els.balanceBox.textContent = "(missing)";
@@ -984,18 +1037,20 @@ function updateDashboard() {
     els.balanceHint.textContent = bal.explain;
   }
 
-  // Pie chart
+  // Pie chart + legend
   if (els.chartMode.value === "cashflow") {
     const data = [
       { label: "Income", value: totals.income },
       { label: "Outflows", value: totals.outflows }
     ];
     drawPie(els.pieCanvas, data, `Cashflow • ${scope.startISO} → ${scope.endISO}`);
-    els.pieLegend.textContent = `Income: ${money(totals.income)} • Outflows: ${money(totals.outflows)}`;
+    renderLegend(data, 6);
+    els.pieSummary.textContent = `Income: ${money(totals.income)} • Outflows: ${money(totals.outflows)}`;
   } else {
     const catData = buildCategoryBreakdown(totals.scopeTx);
     drawPie(els.pieCanvas, catData, `Spending by Category • ${scope.startISO} → ${scope.endISO}`);
-    els.pieLegend.textContent = catData.slice(0,6).map(d => `${d.label}: ${money(d.value)}`).join(" • ") || "No spending data.";
+    renderLegend(catData, 10);
+    els.pieSummary.textContent = catData.slice(0,6).map(d => `${d.label}: ${money(d.value)}`).join(" • ") || "No spending data.";
   }
 
   // Smart insights (all history)
@@ -1095,17 +1150,13 @@ els.importBtn.addEventListener("click", async () => {
   try {
     const res = await importCSVFile(f);
 
-    // Backfill/normalize + ensure categories consistent
     recategorizeAll();
 
-    // ✅ KEY BEHAVIOR YOU ASKED FOR:
-    // After every import, automatically scope to THAT file’s date span
     if (res.range.minISO && res.range.maxISO) {
       els.viewMode.value = "range";
       els.rangeStart.value = res.range.minISO;
       els.rangeEnd.value = res.range.maxISO;
     } else {
-      // fallback: entire history
       const { minISO, maxISO } = getDataRange();
       els.viewMode.value = "range";
       els.rangeStart.value = minISO || "";
@@ -1189,7 +1240,6 @@ els.clearRulesBtn.addEventListener("click", () => {
 (function init() {
   els.monthSelect.value = yyyymmFromDate(new Date());
 
-  // Backfill existing transactions
   allTransactions = allTransactions.map(t => {
     const merchant = t.merchant || normalizeMerchant(t.name, t.memo);
     const category = t.category || categorize(t.txType, t.name, t.memo, t.amount);
@@ -1197,7 +1247,6 @@ els.clearRulesBtn.addEventListener("click", () => {
   });
   saveAll();
 
-  // Default: range = full data range (until first import, then import will auto-set to file range)
   const { minISO, maxISO } = getDataRange();
   els.viewMode.value = "range";
   els.rangeStart.value = minISO || "";
