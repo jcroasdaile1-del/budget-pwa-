@@ -184,14 +184,14 @@
       <summary>Rules: teach the app how to categorize merchants</summary>
 
       <p class="small">
-        Add rules like: <span class="mono">"JOHNSON BANK"</span> → <span class="mono">Mortgage</span>.
+        Add rules like: <span class="mono">"PMI of Greater M"</span> → <span class="mono">HOA</span>.
         Rules are applied top-to-bottom (first match wins).
       </p>
 
       <div class="grid2">
         <div>
           <label>Merchant contains (case-insensitive)</label>
-          <input id="ruleContains" placeholder='e.g. johnson bank, carmax, us cellular, wpm' />
+          <input id="ruleContains" placeholder='e.g. web authorized pmt pmi of greater m' />
         </div>
         <div>
           <label>Category</label>
@@ -427,35 +427,42 @@ function heuristicCategory(txType, merchant, memo, amount) {
   // Investing
   if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
 
-  // ===== Your requested "just check the CSV names" additions =====
-  // US Cellular -> Phone
-  if (n.includes("US CELLULAR") || n.includes("U.S. CELLULAR") || n.includes("USCELLULAR") || n.includes("US CELL") || n.includes("USCELL") ||
-      m.includes("US CELLULAR") || m.includes("U.S. CELLULAR") || m.includes("USCELLULAR") || m.includes("US CELL") || m.includes("USCELL")) {
-    return "Phone";
+  // ========= EXACT vendor matches (your requested strings) =========
+  // Mortgage (either string)
+  if (
+    n.includes("WEB AUTHORIZED PMT JFG EXTERNALXFER") || m.includes("WEB AUTHORIZED PMT JFG EXTERNALXFER") ||
+    n.includes("ELECTRONIC WITHDRAWAL JBM RECEIVABLE") || m.includes("ELECTRONIC WITHDRAWAL JBM RECEIVABLE")
+  ) {
+    return "Mortgage";
   }
 
-  // Johnson Bank -> Mortgage
-  if (n.includes("JOHNSON BANK") || m.includes("JOHNSON BANK")) return "Mortgage";
+  // Wife's car payment
+  if (
+    n.includes("ELECTRONIC WITHDRAWAL WPM") || m.includes("ELECTRONIC WITHDRAWAL WPM")
+  ) {
+    return "Car Payment";
+  }
 
-  // CarMax -> Car Payment
-  if (n.includes("CARMAX") || m.includes("CARMAX")) return "Car Payment";
-
-  // External Withdrawal from WPM -> Car Payment
-  if ((n.includes("EXTERNAL WITHDRAWAL") && n.includes("WPM")) || (m.includes("EXTERNAL WITHDRAWAL") && m.includes("WPM"))) return "Car Payment";
-
-  // HOA -> HOA
-  if (n.includes("HOA") || m.includes("HOA") || n.includes("HOMEOWNERS ASSOCIATION") || m.includes("HOMEOWNERS ASSOCIATION")) return "HOA";
-  // =============================================================
+  // HOA
+  if (
+    n.includes("WEB AUTHORIZED PMT PMI OF GREATER M") || m.includes("WEB AUTHORIZED PMT PMI OF GREATER M")
+  ) {
+    return "HOA";
+  }
+  // ================================================================
 
   // Utilities
   if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
   if (n.includes("WE ENERGIES") || m.includes("WE ENERGIES")) return "Utilities";
 
-  // Other phone carriers
+  // Phone (general)
+  if (n.includes("US CELLULAR") || n.includes("U.S. CELLULAR") || n.includes("USCELLULAR") ||
+      m.includes("US CELLULAR") || m.includes("U.S. CELLULAR") || m.includes("USCELLULAR")) return "Phone";
   if (n.includes("VERIZON") || m.includes("VERIZON")) return "Phone";
 
   // Gas
-  if (n.includes("KWIK TRIP") || n.includes("EXXON") || n.includes("SHELL") || m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL")) return "Gas";
+  if (n.includes("KWIK TRIP") || n.includes("EXXON") || n.includes("SHELL") ||
+      m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL")) return "Gas";
 
   // Shopping/Groceries
   if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
