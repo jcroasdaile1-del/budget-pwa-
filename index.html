@@ -43,6 +43,8 @@
     .chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid #24314f; background:#0f1726; font-size:12px; color:#e8eefc; margin:4px 6px 0 0; }
     .right { text-align:right; }
     canvas { max-width:100%; background:#0f1726; border:1px solid #24314f; border-radius:12px; }
+    .inline { display:flex; gap:10px; flex-wrap:wrap; }
+    .inline > div { flex: 1; min-width: 220px; }
   </style>
 </head>
 
@@ -93,7 +95,7 @@
           <label for="chartMode">Pie chart</label>
           <select id="chartMode">
             <option value="spending" selected>Spending by Category</option>
-            <option value="cashflow">Cashflow: Inflows vs Outflows</option>
+            <option value="cashflow">Cashflow: Inflows vs Outflows (Transfers excluded)</option>
           </select>
         </div>
       </div>
@@ -116,21 +118,21 @@
 
     <div class="grid3">
       <div class="kpiBox">
-        <div class="t">Income (Credits)</div>
+        <div class="t">Income (Credits, Transfers Excluded)</div>
         <div id="income" class="v pos">$0.00</div>
-        <div class="hint">Sum of positive amounts</div>
+        <div class="hint">Sum of positive amounts excluding transfers</div>
       </div>
 
       <div class="kpiBox">
-        <div class="t">Outflows (Debits)</div>
+        <div class="t">Outflows (Debits, Transfers Excluded)</div>
         <div id="outflows" class="v neg">$0.00</div>
-        <div class="hint">Sum of absolute negatives</div>
+        <div class="hint">Sum of absolute negatives excluding transfers</div>
       </div>
 
       <div class="kpiBox">
         <div class="t">Spending (Transfers Excluded)</div>
         <div id="spending" class="v neg">$0.00</div>
-        <div class="hint">Debits excluding transfers</div>
+        <div class="hint">Debits excluding transfers (includes credit-card purchases)</div>
       </div>
 
       <div class="kpiBox">
@@ -151,6 +153,42 @@
         <div id="balanceHint" class="hint"></div>
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <details open>
+      <summary>Credit Cards (Scope)</summary>
+
+      <div class="grid2" style="margin-top:12px;">
+        <div class="kpiBox">
+          <div class="t">Per-card KPIs</div>
+          <div id="ccKpiLine" class="v">—</div>
+          <div id="ccTableWrap" class="small"></div>
+        </div>
+
+        <div class="kpiBox">
+          <div class="t">Payoff Planner (uses saved balances/APR/min)</div>
+          <div id="payoffHeadline" class="v">—</div>
+          <div id="payoffDetails" class="small"></div>
+        </div>
+      </div>
+
+      <details style="margin-top:12px;">
+        <summary>Card Settings (limits, APR, balances)</summary>
+
+        <p class="small">
+          These settings are saved in your browser (localStorage). Add/update balances & limits once, and the dashboard will show utilization + payoff guidance.
+        </p>
+
+        <div id="cardSettingsWrap" style="margin-top:10px;"></div>
+
+        <div class="btnRow" style="margin-top:10px;">
+          <button class="ghost" id="addCardBtn">Add Card Profile</button>
+          <button class="primary" id="saveCardSettingsBtn">Save Card Settings</button>
+        </div>
+        <div id="cardSettingsStatus" class="small"></div>
+      </details>
+    </details>
   </div>
 
   <div class="card">
@@ -232,6 +270,23 @@
     <h3 style="margin:0 0 10px;">Import CSV</h3>
     <input type="file" id="fileInput" accept=".csv,text/csv" />
 
+    <div class="inline" style="margin-top:10px;">
+      <div>
+        <label for="importAs">Import as</label>
+        <select id="importAs">
+          <option value="auto" selected>Auto-detect (from filename)</option>
+          <option value="checking">Checking account</option>
+          <option value="credit">Credit card</option>
+        </select>
+      </div>
+
+      <div id="importCardWrap" style="display:none;">
+        <label for="importCard">Which card?</label>
+        <select id="importCard"></select>
+        <div class="hint" style="margin-top:6px;">Tip: filename like “Credit Card - 9746_...” will auto-pick 9746.</div>
+      </div>
+    </div>
+
     <div class="btnRow" style="margin-top:10px;">
       <button class="primary" id="importBtn">Import (Add to History)</button>
       <button class="ghost" id="removeMarkersBtn">Remove ALL Starting Balance Rows</button>
@@ -253,6 +308,7 @@
         <thead>
           <tr>
             <th>Date</th>
+            <th>Acct</th>
             <th>Transaction</th>
             <th>Name</th>
             <th>Memo</th>
@@ -272,11 +328,21 @@
 let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
 let userRules = JSON.parse(localStorage.getItem("userRules") || "[]");
 let importMeta = JSON.parse(localStorage.getItem("importMeta") || "[]");
+let cardProfiles = JSON.parse(localStorage.getItem("cardProfiles") || "[]");
+
+// Seed defaults (Jim/Mara) if not present
+function ensureDefaultCards() {
+  const has9746 = cardProfiles.some(c => c && c.last4 === "9746");
+  const has1289 = cardProfiles.some(c => c && c.last4 === "1289");
+  if (!has9746) cardProfiles.push({ id:"cc-9746", name:"Jim's Card", last4:"9746", limit:null, apr:null, minPayment:null, dueDay:null, balance:null });
+  if (!has1289) cardProfiles.push({ id:"cc-1289", name:"Mara's Card", last4:"1289", limit:null, apr:null, minPayment:null, dueDay:null, balance:null });
+}
 
 function saveAll() {
   localStorage.setItem("transactions", JSON.stringify(allTransactions));
   localStorage.setItem("userRules", JSON.stringify(userRules));
   localStorage.setItem("importMeta", JSON.stringify(importMeta));
+  localStorage.setItem("cardProfiles", JSON.stringify(cardProfiles));
 }
 
 /* =========================================================
@@ -334,17 +400,32 @@ function moneySigned(n) {
   return prefix + money(v);
 }
 
-function parseUSDate(mmddyyyy) {
-  const s = (mmddyyyy || "").trim();
+function parseDateSmart(value) {
+  const s = (value || "").trim();
+  if (!s) return null;
+
+  // ISO yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s + "T00:00:00");
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  // US mm/dd/yyyy
   const parts = s.split("/");
-  if (parts.length !== 3) return null;
-  const mm = parseInt(parts[0], 10);
-  const dd = parseInt(parts[1], 10);
-  const yyyy = parseInt(parts[2], 10);
-  if (!mm || !dd || !yyyy) return null;
-  const d = new Date(yyyy, mm - 1, dd);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
+  if (parts.length === 3) {
+    const mm = parseInt(parts[0], 10);
+    const dd = parseInt(parts[1], 10);
+    const yyyy = parseInt(parts[2], 10);
+    if (mm && dd && yyyy) {
+      const d = new Date(yyyy, mm - 1, dd);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+  }
+
+  // fallback
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d;
+  return null;
 }
 
 function yyyymmFromDate(d) {
@@ -390,6 +471,39 @@ function escapeHtml(s) {
     .replaceAll('"',"&quot;").replaceAll("'","&#39;");
 }
 
+function detectLast4FromFilename(name) {
+  const m = String(name || "").match(/(\d{4})/);
+  return m ? m[1] : null;
+}
+
+function getCardByLast4(last4) {
+  return cardProfiles.find(c => c && String(c.last4) === String(last4));
+}
+
+function getOrCreateCardProfile(last4, defaultName) {
+  const existing = getCardByLast4(last4);
+  if (existing) return existing;
+  const profile = {
+    id: `cc-${last4}`,
+    name: defaultName || `Card ${last4}`,
+    last4: String(last4),
+    limit: null,
+    apr: null,
+    minPayment: null,
+    dueDay: null,
+    balance: null
+  };
+  cardProfiles.push(profile);
+  saveAll();
+  return profile;
+}
+
+function accountLabel(t) {
+  if (!t) return "";
+  if (t.accountType === "credit") return `CC ${t.accountLast4 || ""}`.trim();
+  return "Checking";
+}
+
 /* =========================================================
    2) Normalization + Categorization Engine
 ========================================================= */
@@ -415,14 +529,29 @@ function applyRulesCategory(merchant) {
   return null;
 }
 
+// Model A transfer detection:
+// - Checking: "PAYMENT TO CREDIT CARD" (your 9746 / 1289 strings)
+// - Credit card: "MOBILE PAYMENT THANK YOU"
+function isTransferByText(merchant, memo) {
+  const n = (merchant || "").toUpperCase();
+  const m = (memo || "").toUpperCase();
+
+  if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return true;
+  if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return true;
+
+  // Credit card side
+  if (n.includes("MOBILE PAYMENT THANK YOU") || m.includes("MOBILE PAYMENT THANK YOU")) return true;
+
+  return false;
+}
+
 function heuristicCategory(txType, merchant, memo, amount) {
   const t = (txType || "").toUpperCase();
   const n = (merchant || "").toUpperCase();
   const m = (memo || "").toUpperCase();
 
-  // Transfers (credit-card oriented; keep tight)
-  if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return "Transfer";
-  if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
+  // Transfers (tight)
+  if (isTransferByText(n, m)) return "Transfer";
 
   // Investing
   if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
@@ -437,18 +566,10 @@ function heuristicCategory(txType, merchant, memo, amount) {
   }
 
   // Wife's car payment
-  if (
-    n.includes("ELECTRONIC WITHDRAWAL WPM") || m.includes("ELECTRONIC WITHDRAWAL WPM")
-  ) {
-    return "Car Payment";
-  }
+  if (n.includes("ELECTRONIC WITHDRAWAL WPM") || m.includes("ELECTRONIC WITHDRAWAL WPM")) return "Car Payment";
 
   // HOA
-  if (
-    n.includes("WEB AUTHORIZED PMT PMI OF GREATER M") || m.includes("WEB AUTHORIZED PMT PMI OF GREATER M")
-  ) {
-    return "HOA";
-  }
+  if (n.includes("WEB AUTHORIZED PMT PMI OF GREATER M") || m.includes("WEB AUTHORIZED PMT PMI OF GREATER M")) return "HOA";
   // ================================================================
 
   // Utilities
@@ -462,7 +583,7 @@ function heuristicCategory(txType, merchant, memo, amount) {
 
   // Gas
   if (n.includes("KWIK TRIP") || n.includes("EXXON") || n.includes("SHELL") ||
-      m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL")) return "Gas";
+      m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL") || n.includes("BP#") || m.includes("BP#")) return "Gas";
 
   // Shopping/Groceries
   if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
@@ -477,7 +598,7 @@ function heuristicCategory(txType, merchant, memo, amount) {
     return "Subscriptions";
   }
 
-  // Income
+  // Income (for checking deposits etc.)
   if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) {
     return "Income";
   }
@@ -506,7 +627,14 @@ function recategorizeAll() {
 /* =========================================================
    3) Import Pipeline (CSV → schema → dedupe) + AUTO RANGE
 ========================================================= */
-async function importCSVFile(file) {
+function inferImportMode(fileName) {
+  const n = String(fileName || "").toLowerCase();
+  if (n.includes("credit card")) return "credit";
+  if (n.includes("checking")) return "checking";
+  return null;
+}
+
+async function importCSVFile(file, importMode, cardLast4) {
   const text = await file.text();
   const rows = parseCSV(text);
   if (rows.length < 2) throw new Error("CSV looks empty.");
@@ -522,6 +650,21 @@ async function importCSVFile(file) {
     throw new Error("Missing required columns. Need at least: Date + Name + Amount.");
   }
 
+  // Determine account fields
+  let accountType = importMode;
+  let accountId = (accountType === "credit") ? `cc-${cardLast4 || "????"}` : "checking";
+  let accountName = (accountType === "credit") ? `Credit Card ${cardLast4 || ""}` : "Checking";
+  let accountLast4 = (accountType === "credit") ? String(cardLast4 || "") : "";
+
+  if (accountType === "credit") {
+    if (!accountLast4) {
+      throw new Error("Credit card import needs a selected card (last 4).");
+    }
+    const profile = getOrCreateCardProfile(accountLast4, accountName);
+    accountName = profile.name || accountName;
+    accountId = profile.id || accountId;
+  }
+
   let added = 0, skipped = 0, failed = 0;
   const debugRows = [];
   let minISO = null, maxISO = null;
@@ -534,7 +677,7 @@ async function importCSVFile(file) {
       const memo    = (iMemo >= 0 ? (r[iMemo] ?? "").trim() : "");
       const amount  = parseMoney(r[iAmt]);
 
-      const d = parseUSDate(dateStr);
+      const d = parseDateSmart(dateStr);
       if (!d || amount === null) { failed++; continue; }
 
       const dateISO = d.toISOString().slice(0, 10);
@@ -546,10 +689,26 @@ async function importCSVFile(file) {
       const merchant = normalizeMerchant(name, memo);
       const category = categorize(txType, name, memo, amount);
 
-      const key = `${dateISO}|${(txType||"").toUpperCase()}|${name}|${memo}|${amount.toFixed(2)}`;
+      // Dedupe should be account-aware
+      const key = `${accountId}|${dateISO}|${(txType||"").toUpperCase()}|${name}|${memo}|${amount.toFixed(2)}`;
       if (allTransactions.some(t => t.key === key)) { skipped++; continue; }
 
-      const record = { key, dateISO, month, txType, name, memo, merchant, amount, category };
+      const record = {
+        key,
+        dateISO,
+        month,
+        txType,
+        name,
+        memo,
+        merchant,
+        amount,
+        category,
+        accountType,
+        accountId,
+        accountName,
+        accountLast4
+      };
+
       allTransactions.push(record);
       added++;
       if (debugRows.length < 6) debugRows.push(record);
@@ -562,11 +721,13 @@ async function importCSVFile(file) {
     fileName: file.name,
     importedAtISO: new Date().toISOString(),
     added, skipped, failed,
+    mode: accountType,
+    cardLast4: accountLast4 || null,
     range: { minISO, maxISO }
   });
 
   saveAll();
-  return { added, skipped, failed, debugRows, range: { minISO, maxISO } };
+  return { added, skipped, failed, debugRows, range: { minISO, maxISO }, mode: accountType, cardLast4: accountLast4 || null };
 }
 
 /* =========================================================
@@ -610,8 +771,16 @@ function filterToScope(tx, scope) {
 function scopeTotals(scopeTxAll) {
   const scopeTx = scopeTxAll.filter(t => t.category !== "Starting Balance");
 
-  const income = scopeTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
-  const outflows = scopeTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  // Income/outflows excluding transfers (Model A cashflow)
+  const income = scopeTx
+    .filter(t => t.amount > 0)
+    .filter(t => t.category !== "Transfer")
+    .reduce((s,t)=>s+t.amount,0);
+
+  const outflows = scopeTx
+    .filter(t => t.amount < 0)
+    .filter(t => t.category !== "Transfer")
+    .reduce((s,t)=>s+Math.abs(t.amount),0);
 
   const transferOut = scopeTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
   const transferIn  = scopeTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
@@ -715,7 +884,8 @@ function detectRecurring(transactions) {
 function detectPaychecks(transactions) {
   const credits = transactions
     .filter(t => t.category !== "Starting Balance")
-    .filter(t => t.amount > 0);
+    .filter(t => t.amount > 0)
+    .filter(t => t.category !== "Transfer");
 
   if (credits.length < 3) return { summary: "No paycheck pattern yet", paychecks: [], spikes: [] };
 
@@ -882,7 +1052,80 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
 }
 
 /* =========================================================
-   9) UI Wiring + Dashboard
+   9) Credit Card Dashboard helpers
+========================================================= */
+function computeCardScopeStats(scopeTx) {
+  const cards = cardProfiles.slice().sort((a,b)=>String(a.last4).localeCompare(String(b.last4)));
+  const stats = [];
+
+  for (const c of cards) {
+    const tx = scopeTx
+      .filter(t => t.category !== "Starting Balance")
+      .filter(t => t.accountType === "credit")
+      .filter(t => String(t.accountLast4 || "") === String(c.last4 || ""));
+
+    const spend = tx
+      .filter(t => t.amount < 0)
+      .filter(t => t.category !== "Transfer")
+      .reduce((s,t)=>s+Math.abs(t.amount),0);
+
+    const payments = tx
+      .filter(t => t.amount > 0)
+      .filter(t => t.category === "Transfer") // mobile payment thank you
+      .reduce((s,t)=>s+t.amount,0);
+
+    const net = tx.reduce((s,t)=>s+Number(t.amount||0),0);
+
+    const bal = (c.balance === null || c.balance === undefined || c.balance === "") ? null : Number(c.balance);
+    const limit = (c.limit === null || c.limit === undefined || c.limit === "") ? null : Number(c.limit);
+    const util = (bal !== null && limit) ? (bal / limit) : null;
+
+    stats.push({ card:c, spend, payments, net, balance:bal, limit, util });
+  }
+  return stats;
+}
+
+function payoffPlannerSummary() {
+  const cards = cardProfiles
+    .map(c => ({
+      ...c,
+      balance: (c.balance === null || c.balance === "" || c.balance === undefined) ? null : Number(c.balance),
+      apr: (c.apr === null || c.apr === "" || c.apr === undefined) ? null : Number(c.apr),
+      minPayment: (c.minPayment === null || c.minPayment === "" || c.minPayment === undefined) ? null : Number(c.minPayment)
+    }))
+    .filter(c => c.balance !== null && c.balance > 0);
+
+  if (!cards.length) {
+    return { headline: "Add balances to enable payoff guidance", details: "Open Card Settings and enter each card’s current balance (and APR/min payment if you want smart ordering)." };
+  }
+
+  const totalBal = cards.reduce((s,c)=>s+c.balance,0);
+  const totalMin = cards.reduce((s,c)=>s+(c.minPayment || 0),0);
+
+  const hasAPR = cards.some(c => c.apr !== null);
+  const hasMin = cards.some(c => c.minPayment !== null);
+
+  let avalanche = cards.slice().sort((a,b) => (b.apr||0) - (a.apr||0));
+  let snowball  = cards.slice().sort((a,b) => (a.balance||0) - (b.balance||0));
+
+  const aLine = hasAPR
+    ? `Avalanche order (highest APR first): ` + avalanche.map(c => `${c.name || ("Card "+c.last4)} (${c.apr||"?"}% • ${money(c.balance)})`).join(" • ")
+    : `Avalanche order needs APRs. Enter APR for better guidance.`;
+
+  const sLine = `Snowball order (smallest balance first): ` + snowball.map(c => `${c.name || ("Card "+c.last4)} (${money(c.balance)})`).join(" • ");
+
+  const note = hasMin
+    ? `Total minimum payments: ${money(totalMin)}`
+    : `Enter minimum payments to see “total mins” and better payoff planning.`;
+
+  return {
+    headline: `Total CC balance: ${money(totalBal)}`,
+    details: `${note}<br><br>${escapeHtml(aLine)}<br><br>${escapeHtml(sLine)}`
+  };
+}
+
+/* =========================================================
+   10) UI Wiring + Dashboard
 ========================================================= */
 const els = {
   viewMode: document.getElementById("viewMode"),
@@ -911,6 +1154,16 @@ const els = {
   balanceBox: document.getElementById("balanceBox"),
   balanceHint: document.getElementById("balanceHint"),
 
+  ccKpiLine: document.getElementById("ccKpiLine"),
+  ccTableWrap: document.getElementById("ccTableWrap"),
+  payoffHeadline: document.getElementById("payoffHeadline"),
+  payoffDetails: document.getElementById("payoffDetails"),
+
+  cardSettingsWrap: document.getElementById("cardSettingsWrap"),
+  addCardBtn: document.getElementById("addCardBtn"),
+  saveCardSettingsBtn: document.getElementById("saveCardSettingsBtn"),
+  cardSettingsStatus: document.getElementById("cardSettingsStatus"),
+
   recurringCount: document.getElementById("recurringCount"),
   recurringList: document.getElementById("recurringList"),
   paycheckSummary: document.getElementById("paycheckSummary"),
@@ -924,6 +1177,10 @@ const els = {
   clearBtn: document.getElementById("clearBtn"),
   status: document.getElementById("status"),
   debug: document.getElementById("debug"),
+
+  importAs: document.getElementById("importAs"),
+  importCardWrap: document.getElementById("importCardWrap"),
+  importCard: document.getElementById("importCard"),
 
   countPill: document.getElementById("countPill"),
   tableBody: document.getElementById("tableBody"),
@@ -1037,6 +1294,100 @@ function updateTopDelta(balInfo, scope, totals) {
   }
 }
 
+function renderCardSettings() {
+  if (!cardProfiles.length) {
+    els.cardSettingsWrap.innerHTML = `<div class="small hint">No cards yet. Click “Add Card Profile”.</div>`;
+    return;
+  }
+
+  const rows = cardProfiles.map((c, idx) => {
+    return `
+      <div class="kpiBox" style="margin-bottom:10px;">
+        <div class="row">
+          <div style="min-width:260px;">
+            <div class="t">Card Name</div>
+            <input data-card="${idx}" data-field="name" value="${escapeHtml(c.name||"")}" />
+            <div class="hint">Last4: <span class="mono">${escapeHtml(c.last4||"")}</span></div>
+          </div>
+
+          <div style="min-width:160px;">
+            <div class="t">Limit</div>
+            <input data-card="${idx}" data-field="limit" placeholder="e.g. 8000" value="${c.limit ?? ""}" />
+          </div>
+
+          <div style="min-width:160px;">
+            <div class="t">Balance (current)</div>
+            <input data-card="${idx}" data-field="balance" placeholder="e.g. 2450" value="${c.balance ?? ""}" />
+          </div>
+
+          <div style="min-width:160px;">
+            <div class="t">APR %</div>
+            <input data-card="${idx}" data-field="apr" placeholder="e.g. 23.99" value="${c.apr ?? ""}" />
+          </div>
+
+          <div style="min-width:160px;">
+            <div class="t">Min Payment</div>
+            <input data-card="${idx}" data-field="minPayment" placeholder="e.g. 75" value="${c.minPayment ?? ""}" />
+          </div>
+
+          <div style="min-width:160px;">
+            <div class="t">Due Day (1-31)</div>
+            <input data-card="${idx}" data-field="dueDay" placeholder="e.g. 15" value="${c.dueDay ?? ""}" />
+          </div>
+        </div>
+
+        <div class="btnRow" style="margin-top:10px;">
+          <button class="danger" data-delcard="${idx}">Delete Card</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  els.cardSettingsWrap.innerHTML = rows;
+
+  els.cardSettingsWrap.querySelectorAll("button[data-delcard]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-delcard"));
+      const c = cardProfiles[i];
+      if (!confirm(`Delete card profile "${c?.name || c?.last4}"? (Transactions remain; profile settings removed)`)) return;
+      cardProfiles.splice(i, 1);
+      saveAll();
+      populateImportCardDropdown();
+      renderCardSettings();
+      updateDashboard();
+    });
+  });
+}
+
+function readCardSettingsFromUI() {
+  const inputs = els.cardSettingsWrap.querySelectorAll("input[data-card][data-field]");
+  for (const inp of inputs) {
+    const idx = Number(inp.getAttribute("data-card"));
+    const field = inp.getAttribute("data-field");
+    if (!cardProfiles[idx]) continue;
+    cardProfiles[idx][field] = inp.value;
+  }
+}
+
+function populateImportCardDropdown(selectedLast4) {
+  const opts = cardProfiles
+    .slice()
+    .sort((a,b)=>String(a.last4).localeCompare(String(b.last4)))
+    .map(c => `<option value="${escapeHtml(c.last4||"")}">${escapeHtml(c.name || ("Card "+c.last4))} • ${escapeHtml(c.last4||"")}</option>`)
+    .join("");
+
+  els.importCard.innerHTML = opts || `<option value="">(No cards yet)</option>`;
+
+  if (selectedLast4) els.importCard.value = String(selectedLast4);
+}
+
+function updateImportUI() {
+  const mode = els.importAs.value;
+  const showCard = (mode === "credit");
+  els.importCardWrap.style.display = showCard ? "" : "none";
+  if (showCard) populateImportCardDropdown(els.importCard.value);
+}
+
 function updateDashboard() {
   updateViewModeUI();
 
@@ -1067,7 +1418,7 @@ function updateDashboard() {
 
   if (els.chartMode.value === "cashflow") {
     const data = [{ label:"Income", value: totals.income }, { label:"Outflows", value: totals.outflows }];
-    drawPieWithLegend(els.pieCanvas, data, `Cashflow • ${scope.startISO} → ${scope.endISO}`, 8);
+    drawPieWithLegend(els.pieCanvas, data, `Cashflow (Transfers excluded) • ${scope.startISO} → ${scope.endISO}`, 8);
     els.pieSummary.textContent = `Income: ${money(totals.income)} • Outflows: ${money(totals.outflows)}`;
   } else {
     const catData = buildCategoryBreakdown(totals.scopeTx);
@@ -1098,14 +1449,68 @@ function updateDashboard() {
   els.reconLine.textContent = recon.line;
   els.reconDetails.textContent = recon.details;
 
-  els.countPill.textContent = `${totals.scopeTxAll.length} rows`;
+  // Credit card KPIs (scope)
+  const cardStats = computeCardScopeStats(scopeTxAll);
+  const totalCCSpend = cardStats.reduce((s,x)=>s+x.spend,0);
+  const totalCCPay = cardStats.reduce((s,x)=>s+x.payments,0);
+  els.ccKpiLine.textContent = `CC spend: ${money(totalCCSpend)} • CC payments: ${money(totalCCPay)}`;
+
+  if (!cardStats.length) {
+    els.ccTableWrap.innerHTML = `<span class="hint">No card profiles yet. Import a credit-card CSV or add a card profile.</span>`;
+  } else {
+    const rows = cardStats.map(x => {
+      const util = (x.util === null) ? "—" : `${Math.round(x.util*1000)/10}%`;
+      const utilWarn = (x.util !== null && x.util >= 0.30) ? ` <span class="warn">(high)</span>` : "";
+      const balTxt = (x.balance === null) ? "—" : money(x.balance);
+      const limTxt = (x.limit === null) ? "—" : money(x.limit);
+      return `
+        <tr>
+          <td><b>${escapeHtml(x.card.name || ("Card "+x.card.last4))}</b><div class="hint">Last4 ${escapeHtml(x.card.last4||"")}</div></td>
+          <td class="mono right">${money(x.spend)}</td>
+          <td class="mono right">${money(x.payments)}</td>
+          <td class="mono right">${moneySigned(x.net)}</td>
+          <td class="mono right">${balTxt}</td>
+          <td class="mono right">${limTxt}</td>
+          <td class="mono right">${util}${utilWarn}</td>
+        </tr>
+      `;
+    }).join("");
+
+    els.ccTableWrap.innerHTML = `
+      <div style="overflow:auto; margin-top:10px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Card</th>
+              <th class="right">Spend</th>
+              <th class="right">Payments</th>
+              <th class="right">Net</th>
+              <th class="right">Balance</th>
+              <th class="right">Limit</th>
+              <th class="right">Util</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="hint" style="margin-top:8px;">Utilization uses saved Balance/Limit. Enter those in Card Settings.</div>
+    `;
+  }
+
+  const payoff = payoffPlannerSummary();
+  els.payoffHeadline.textContent = payoff.headline;
+  els.payoffDetails.innerHTML = payoff.details;
+
+  // Transactions table
+  els.countPill.textContent = `${scopeTxAll.length} rows`;
   els.tableBody.innerHTML = "";
 
-  totals.scopeTxAll.slice().sort((a,b)=>a.dateISO<b.dateISO?1:-1).slice(0,900).forEach(t => {
+  scopeTxAll.slice().sort((a,b)=>a.dateISO<b.dateISO?1:-1).slice(0,900).forEach(t => {
     const amtClass = t.amount >= 0 ? "pos" : "neg";
     const row = document.createElement("tr");
     row.innerHTML = `
       <td class="mono">${t.dateISO}</td>
+      <td><span class="pill">${escapeHtml(accountLabel(t))}</span></td>
       <td class="mono">${escapeHtml(t.txType || "")}</td>
       <td>${escapeHtml(t.merchant || t.name || "")}</td>
       <td>${escapeHtml(t.memo || "")}</td>
@@ -1117,13 +1522,39 @@ function updateDashboard() {
 }
 
 /* =========================================================
-   10) Events / Buttons
+   11) Events / Buttons
 ========================================================= */
 els.viewMode.addEventListener("change", updateDashboard);
 els.rangeStart.addEventListener("change", updateDashboard);
 els.rangeEnd.addEventListener("change", updateDashboard);
 els.monthSelect.addEventListener("change", updateDashboard);
 els.chartMode.addEventListener("change", updateDashboard);
+
+els.importAs.addEventListener("change", () => {
+  updateImportUI();
+});
+
+els.fileInput.addEventListener("change", () => {
+  const f = els.fileInput.files && els.fileInput.files[0];
+  if (!f) return;
+
+  // Auto-switch import UI based on filename
+  if (els.importAs.value === "auto") {
+    const inferred = inferImportMode(f.name);
+    if (inferred === "credit") {
+      els.importAs.value = "credit";
+      const last4 = detectLast4FromFilename(f.name);
+      if (last4) populateImportCardDropdown(last4);
+    } else if (inferred === "checking") {
+      els.importAs.value = "checking";
+    }
+  } else if (els.importAs.value === "credit") {
+    const last4 = detectLast4FromFilename(f.name);
+    if (last4) populateImportCardDropdown(last4);
+  }
+
+  updateImportUI();
+});
 
 els.rangeToAllDataBtn.addEventListener("click", () => {
   const { minISO, maxISO } = getDataRange();
@@ -1165,7 +1596,19 @@ els.importBtn.addEventListener("click", async () => {
   els.debug.textContent = "";
 
   try {
-    const res = await importCSVFile(f);
+    // Resolve import mode
+    let mode = els.importAs.value;
+    let cardLast4 = null;
+
+    if (mode === "auto") {
+      mode = inferImportMode(f.name) || "checking";
+    }
+    if (mode === "credit") {
+      cardLast4 = els.importCard.value || detectLast4FromFilename(f.name);
+      if (!cardLast4) throw new Error("Select a credit card (last 4) to import this file.");
+    }
+
+    const res = await importCSVFile(f, mode, cardLast4);
     recategorizeAll();
 
     if (res.range.minISO && res.range.maxISO) {
@@ -1179,12 +1622,14 @@ els.importBtn.addEventListener("click", async () => {
       els.rangeEnd.value = maxISO || "";
     }
 
-    els.status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Scope set to ${res.range.minISO || "?"} → ${res.range.maxISO || "?"}`;
+    els.status.textContent = `Imported (${res.mode}${res.cardLast4 ? " "+res.cardLast4 : ""}). Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Scope set to ${res.range.minISO || "?"} → ${res.range.maxISO || "?"}`;
 
     els.debug.textContent = res.debugRows.length
-      ? "Parsed sample rows:\n" + res.debugRows.map(r => `${r.dateISO} | ${r.txType || ""} | "${r.merchant}" | amt=${r.amount} | cat=${r.category}`).join("\n")
+      ? "Parsed sample rows:\n" + res.debugRows.map(r => `${r.dateISO} | ${accountLabel(r)} | ${r.txType || ""} | "${r.merchant}" | amt=${r.amount} | cat=${r.category}`).join("\n")
       : "No rows parsed.";
 
+    populateImportCardDropdown();
+    renderCardSettings();
     updateRulesTable();
     updateDashboard();
   } catch (e) {
@@ -1204,11 +1649,14 @@ els.removeMarkersBtn.addEventListener("click", () => {
 });
 
 els.clearBtn.addEventListener("click", () => {
-  if (!confirm("Start fresh? This deletes ALL imported data AND rules.")) return;
+  if (!confirm("Start fresh? This deletes ALL imported data AND rules AND card settings.")) return;
   allTransactions = [];
   userRules = [];
   importMeta = [];
+  cardProfiles = [];
   localStorage.clear();
+  ensureDefaultCards();
+  saveAll();
   els.status.textContent = "Deleted everything. Import a new CSV to start.";
   els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
@@ -1216,6 +1664,8 @@ els.clearBtn.addEventListener("click", () => {
   els.rangeStart.value = "";
   els.rangeEnd.value = "";
   updateRulesTable();
+  populateImportCardDropdown();
+  renderCardSettings();
   updateDashboard();
 });
 
@@ -1248,17 +1698,47 @@ els.clearRulesBtn.addEventListener("click", () => {
   updateDashboard();
 });
 
+// Card settings controls
+els.addCardBtn.addEventListener("click", () => {
+  const last4 = prompt("Enter last 4 digits for the new card (e.g. 4321):");
+  if (!last4 || !/^\d{4}$/.test(last4.trim())) {
+    els.cardSettingsStatus.textContent = "Cancelled (need 4 digits).";
+    return;
+  }
+  const name = prompt("Card name (optional):") || `Card ${last4.trim()}`;
+  getOrCreateCardProfile(last4.trim(), name);
+  els.cardSettingsStatus.textContent = `Added card ${last4.trim()}.`;
+  populateImportCardDropdown(last4.trim());
+  renderCardSettings();
+  updateDashboard();
+});
+
+els.saveCardSettingsBtn.addEventListener("click", () => {
+  readCardSettingsFromUI();
+  saveAll();
+  els.cardSettingsStatus.textContent = "Saved card settings.";
+  setTimeout(()=>els.cardSettingsStatus.textContent="", 1200);
+  updateDashboard();
+});
+
 /* =========================================================
-   11) Init
+   12) Init
 ========================================================= */
 (function init() {
+  ensureDefaultCards();
+
   els.monthSelect.value = yyyymmFromDate(new Date());
 
   allTransactions = allTransactions.map(t => {
     const merchant = t.merchant || normalizeMerchant(t.name, t.memo);
     const category = t.category || categorize(t.txType, t.name, t.memo, t.amount);
-    return { ...t, merchant, category };
+    const accountType = t.accountType || "checking";
+    const accountId = t.accountId || (accountType === "credit" ? `cc-${t.accountLast4||""}` : "checking");
+    const accountName = t.accountName || (accountType === "credit" ? `Credit Card ${t.accountLast4||""}` : "Checking");
+    const accountLast4 = t.accountLast4 || (accountType === "credit" ? (t.accountId||"").replace("cc-","") : "");
+    return { ...t, merchant, category, accountType, accountId, accountName, accountLast4 };
   });
+
   saveAll();
 
   const { minISO, maxISO } = getDataRange();
@@ -1266,6 +1746,9 @@ els.clearRulesBtn.addEventListener("click", () => {
   els.rangeStart.value = minISO || "";
   els.rangeEnd.value = maxISO || "";
 
+  populateImportCardDropdown();
+  updateImportUI();
+  renderCardSettings();
   updateRulesTable();
   updateDashboard();
 })();
