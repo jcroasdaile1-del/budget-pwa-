@@ -10,13 +10,13 @@
     body { margin:0; font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif; background:#0b1220; color:#e8eefc; padding:16px; }
     h1 { font-size:18px; margin:0 0 12px; }
     .card { background:#121a2b; padding:16px; border-radius:12px; margin-bottom:16px; border:1px solid #24314f; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; }
     .btnRow { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-start; }
     button { padding:10px 14px; border-radius:10px; border:none; font-weight:900; cursor:pointer; }
     .primary { background:#64d2ff; color:#0b1220; }
     .danger { background:#ff6b6b; color:#fff; }
     .ghost { background:#0f1726; color:#e8eefc; border:1px solid #24314f; }
-    input { padding:10px; border-radius:10px; border:1px solid #24314f; background:#0f1726; color:#e8eefc; width:100%; }
+    input, select { padding:10px; border-radius:10px; border:1px solid #24314f; background:#0f1726; color:#e8eefc; width:100%; }
     label { font-size:12px; color:#9fb0d0; display:block; margin-bottom:6px; }
     table { width:100%; font-size:12px; border-collapse:collapse; }
     th, td { padding:8px 6px; border-bottom:1px solid #24314f; vertical-align:top; }
@@ -28,23 +28,31 @@
     .kpi { font-size:34px; font-weight:950; margin:6px 0 0; letter-spacing:-.5px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .grid2 { display:grid; grid-template-columns: 1fr; gap:10px; }
-    @media(min-width:820px){ .grid2 { grid-template-columns: 1fr 1fr; } }
+    .grid3 { display:grid; grid-template-columns: 1fr; gap:10px; }
+    @media(min-width:820px){
+      .grid2 { grid-template-columns: 1fr 1fr; }
+      .grid3 { grid-template-columns: 1fr 1fr 1fr; }
+    }
     .kpiBox { background:#0f1726; border:1px solid #24314f; border-radius:12px; padding:12px; }
     .kpiBox .t { color:#9fb0d0; font-size:12px; }
     .kpiBox .v { font-size:20px; font-weight:900; margin-top:6px; }
     .hint { color:#9fb0d0; font-size:12px; }
     .warn { color:#ffd36b; }
+    details summary { cursor:pointer; color:#e8eefc; font-weight:800; }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; background:#0f1726; border:1px solid #24314f; font-size:11px; color:#9fb0d0; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; border:1px solid #24314f; background:#0f1726; font-size:12px; color:#e8eefc; }
+    .right { text-align:right; }
+    canvas { max-width:100%; background:#0f1726; border:1px solid #24314f; border-radius:12px; }
   </style>
 </head>
 
 <body>
   <h1>Budget Command Center</h1>
 
-  <!-- TOP SUMMARY -->
   <div class="card">
     <div class="row">
       <div style="min-width:340px;">
-        <div class="pill">What matters</div>
+        <div class="pill">This month</div>
         <div id="topLine" class="kpi">$0.00</div>
         <div id="topSub" class="small"></div>
         <div id="balanceSub" class="small"></div>
@@ -53,51 +61,59 @@
       <div style="min-width:220px;">
         <label for="monthSelect">Month view</label>
         <input id="monthSelect" type="month" />
+        <div style="height:10px;"></div>
+        <label for="chartMode">Pie chart</label>
+        <select id="chartMode">
+          <option value="spending" selected>Spending by Category</option>
+          <option value="cashflow">Cashflow: Inflows vs Outflows</option>
+        </select>
       </div>
     </div>
 
+    <div style="margin-top:12px;">
+      <canvas id="pieCanvas" width="900" height="360"></canvas>
+      <div id="pieLegend" class="small"></div>
+    </div>
+
     <p class="small">
-      <b>Starting balance rule (CSV-only):</b><br/>
-      Add one row where either:
-      <span class="mono">Transaction</span> equals <span class="mono">Balance</span> (US Bank export does this), <b>OR</b>
-      <span class="mono">Name</span>/<span class="mono">Memo</span> contains <span class="mono">starting balance</span>.<br/>
-      Put the starting balance number in <span class="mono">Amount</span>.
-      The app uses the <b>most recent</b> marker row (by date) and computes a running balance forward.
+      <b>Starting balance (CSV-only):</b> your US Bank export includes a <span class="mono">Transaction = Balance</span> row.
+      This app uses the most recent Balance/Starting Balance marker <b>on or before</b> the “as-of” date and computes forward.
+      If you ever want to restart the running balance, add a newer marker row with your new anchor amount/date.
     </p>
   </div>
 
   <div class="card">
     <h3 style="margin:0 0 10px;">Month Totals (Selected Month)</h3>
 
-    <div class="grid2">
+    <div class="grid3">
       <div class="kpiBox">
         <div class="t">Income (Credits)</div>
         <div id="income" class="v pos">$0.00</div>
-        <div class="hint">Sum of positive amounts (this month)</div>
+        <div class="hint">Sum of positive amounts</div>
       </div>
 
       <div class="kpiBox">
         <div class="t">Outflows (Debits)</div>
         <div id="outflows" class="v neg">$0.00</div>
-        <div class="hint">Sum of absolute value of negatives (this month)</div>
+        <div class="hint">Sum of absolute negatives</div>
       </div>
 
       <div class="kpiBox">
         <div class="t">Spending (Transfers Excluded)</div>
         <div id="spending" class="v neg">$0.00</div>
-        <div class="hint">Debits excluding transfer payments</div>
+        <div class="hint">Debits excluding transfers</div>
       </div>
 
       <div class="kpiBox">
         <div class="t">Transfers (Net)</div>
         <div id="transfers" class="v">$0.00</div>
-        <div class="hint">Net of transfer-labeled items (this month)</div>
+        <div class="hint">Net of transfer-labeled items</div>
       </div>
 
       <div class="kpiBox">
         <div class="t">Net Change (All Tx)</div>
         <div id="netChange" class="v">$0.00</div>
-        <div class="hint">Sum of amounts (this month), excludes marker rows</div>
+        <div class="hint">Sum of amounts (excludes marker rows)</div>
       </div>
 
       <div class="kpiBox">
@@ -109,8 +125,82 @@
   </div>
 
   <div class="card">
+    <details open>
+      <summary>Smart Insights</summary>
+
+      <div class="grid2" style="margin-top:12px;">
+        <div class="kpiBox">
+          <div class="t">Recurring bills / subscriptions detected</div>
+          <div id="recurringCount" class="v">0</div>
+          <div id="recurringList" class="small"></div>
+        </div>
+
+        <div class="kpiBox">
+          <div class="t">Paycheck pattern + overtime spikes</div>
+          <div id="paycheckSummary" class="v">—</div>
+          <div id="paycheckList" class="small"></div>
+        </div>
+      </div>
+
+      <div class="kpiBox" style="margin-top:12px;">
+        <div class="t">Reconciliation (import quality)</div>
+        <div id="reconLine" class="v">—</div>
+        <div id="reconDetails" class="small"></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Rules: teach the app how to categorize merchants</summary>
+
+      <p class="small">
+        Add rules like: <span class="mono">"SPECTRUM"</span> → <span class="mono">Utilities</span>.
+        Rules are applied top-to-bottom (first match wins).
+      </p>
+
+      <div class="grid2">
+        <div>
+          <label>Merchant contains (case-insensitive)</label>
+          <input id="ruleContains" placeholder='e.g. spectrum, kwik trip, disney+' />
+        </div>
+        <div>
+          <label>Category</label>
+          <select id="ruleCategory">
+            <option>Groceries</option>
+            <option>Gas</option>
+            <option>Utilities</option>
+            <option>Phone</option>
+            <option>Rent/Mortgage</option>
+            <option>Insurance</option>
+            <option>Subscriptions</option>
+            <option>Dining</option>
+            <option>Shopping</option>
+            <option>Kids</option>
+            <option>Medical</option>
+            <option>Travel</option>
+            <option>Investing</option>
+            <option>Transfer</option>
+            <option>Income</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btnRow" style="margin-top:10px;">
+        <button class="primary" id="addRuleBtn">Add Rule</button>
+        <button class="ghost" id="reapplyRulesBtn">Reapply Rules to All Transactions</button>
+        <button class="danger" id="clearRulesBtn">Delete All Rules</button>
+      </div>
+
+      <div id="rulesTableWrap" style="overflow:auto; margin-top:12px;"></div>
+    </details>
+  </div>
+
+  <div class="card">
     <h3 style="margin:0 0 10px;">Import CSV</h3>
     <input type="file" id="fileInput" accept=".csv,text/csv" />
+
     <div class="btnRow" style="margin-top:10px;">
       <button class="primary" id="importBtn">Import (Add to History)</button>
       <button class="ghost" id="removeMarkersBtn">Remove ALL Starting Balance Rows</button>
@@ -119,17 +209,12 @@
 
     <p id="status" class="small"></p>
     <div id="debug" class="small mono"></div>
-
-    <p class="small">
-      Tip: Your US Bank export already includes a <span class="mono">Transaction = Balance</span> row — that should work as the marker automatically.
-      If you ever want to “restart,” add a newer Balance/Starting Balance row with the new anchor amount/date.
-    </p>
   </div>
 
   <div class="card">
     <div class="row">
       <h3 style="margin:0;">Transactions (Selected Month)</h3>
-      <span id="countPill" class="pill">0 tx</span>
+      <span id="countPill" class="pill">0 rows</span>
     </div>
 
     <div style="overflow:auto; margin-top:10px;">
@@ -141,7 +226,7 @@
             <th>Name</th>
             <th>Memo</th>
             <th>Category</th>
-            <th class="mono">Amount</th>
+            <th class="mono right">Amount</th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -150,9 +235,22 @@
   </div>
 
 <script>
-/* =========================
-   CSV parser (quoted commas safe)
-========================= */
+/* =========================================================
+   0) Storage + State
+========================================================= */
+let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
+let userRules = JSON.parse(localStorage.getItem("userRules") || "[]");
+let importMeta = JSON.parse(localStorage.getItem("importMeta") || "[]"); // basic audit trail
+
+function saveAll() {
+  localStorage.setItem("transactions", JSON.stringify(allTransactions));
+  localStorage.setItem("userRules", JSON.stringify(userRules));
+  localStorage.setItem("importMeta", JSON.stringify(importMeta));
+}
+
+/* =========================================================
+   1) Utilities: CSV parsing, money, dates
+========================================================= */
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -186,29 +284,6 @@ function parseCSV(text) {
   return rows;
 }
 
-/* =========================
-   Dates & money
-========================= */
-function parseUSDate(mmddyyyy) {
-  const s = (mmddyyyy || "").trim();
-  const parts = s.split("/");
-  if (parts.length !== 3) return null;
-  const mm = parseInt(parts[0], 10);
-  const dd = parseInt(parts[1], 10);
-  const yyyy = parseInt(parts[2], 10);
-  if (!mm || !dd || !yyyy) return null;
-  const d = new Date(yyyy, mm - 1, dd);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
-}
-function yyyymmFromDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-function money(n) {
-  return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
 function parseMoney(value) {
   if (value === null || value === undefined) return null;
   let s = String(value).trim();
@@ -223,17 +298,29 @@ function parseMoney(value) {
   return isParenNeg ? -n : n;
 }
 
-/* =========================
-   Storage
-========================= */
-let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
-function saveAll() {
-  localStorage.setItem("transactions", JSON.stringify(allTransactions));
+function money(n) {
+  return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-/* =========================
-   Header mapping
-========================= */
+function parseUSDate(mmddyyyy) {
+  const s = (mmddyyyy || "").trim();
+  const parts = s.split("/");
+  if (parts.length !== 3) return null;
+  const mm = parseInt(parts[0], 10);
+  const dd = parseInt(parts[1], 10);
+  const yyyy = parseInt(parts[2], 10);
+  if (!mm || !dd || !yyyy) return null;
+  const d = new Date(yyyy, mm - 1, dd);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function yyyymmFromDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
 function indexOfAny(headers, candidates) {
   const upper = headers.map(h => (h || "").trim().toUpperCase());
   for (const c of candidates) {
@@ -243,11 +330,42 @@ function indexOfAny(headers, candidates) {
   return -1;
 }
 
-/* =========================
-   Marker detection
-   - US Bank exports a Transaction column with value "Balance"
-   - Also allow Name/Memo contains "starting balance"
-========================= */
+function maxDateISO(records) {
+  if (!records.length) return null;
+  return records.reduce((max, r) => (r.dateISO > max ? r.dateISO : max), records[0].dateISO);
+}
+
+function minDateISO(records) {
+  if (!records.length) return null;
+  return records.reduce((min, r) => (r.dateISO < min ? r.dateISO : min), records[0].dateISO);
+}
+
+function daysBetweenISO(aISO, bISO) {
+  const a = new Date(aISO + "T00:00:00");
+  const b = new Date(bISO + "T00:00:00");
+  return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
+function isoAddDays(dateISO, n) {
+  const d = new Date(dateISO + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* =========================================================
+   2) Normalization + Categorization Engine
+   - apply user rules first (first match wins)
+   - then heuristics
+========================================================= */
+function normalizeMerchant(name, memo) {
+  // Keep it conservative: mostly uppercase normalize + trim
+  const base = (name || "").replace(/\s+/g, " ").trim();
+  const m = (memo || "").replace(/\s+/g, " ").trim();
+  // If the name is blank, fall back to memo
+  const s = base || m || "";
+  return s;
+}
+
 function isMarkerRow(txType, name, memo) {
   const t = (txType || "").toLowerCase().trim();
   const n = (name || "").toLowerCase();
@@ -255,37 +373,75 @@ function isMarkerRow(txType, name, memo) {
   return (t === "balance") || n.includes("starting balance") || m.includes("starting balance");
 }
 
-/* =========================
-   Categorization (basic)
-========================= */
-function categorize(txType, name, memo, amount) {
-  if (isMarkerRow(txType, name, memo)) return "Starting Balance";
+function applyRulesCategory(merchant) {
+  const m = (merchant || "").toLowerCase();
+  for (const rule of userRules) {
+    if (!rule || !rule.contains || !rule.category) continue;
+    if (m.includes(String(rule.contains).toLowerCase())) return rule.category;
+  }
+  return null;
+}
 
-  const n = (name || "").toUpperCase();
-  const m = (memo || "").toUpperCase();
+function heuristicCategory(txType, merchant, memo, amount) {
   const t = (txType || "").toUpperCase();
+  const n = (merchant || "").toUpperCase();
+  const m = (memo || "").toUpperCase();
 
-  // transfers (your file has: "MOBILE BANKING PAYMENT TO CREDIT CARD ####")
+  // Transfers: US Bank often includes "PAYMENT TO CREDIT CARD"
   if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return "Transfer";
   if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
 
-  // common buckets (optional)
+  // Investing
   if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
+
+  // Common categories
   if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
+  if (n.includes("WE ENERGIES") || m.includes("WE ENERGIES")) return "Utilities";
   if (n.includes("US CELL") || n.includes("USCELL") || m.includes("USCELL")) return "Phone";
-  if (n.includes("KWIK TRIP") || n.includes("EXXON") || m.includes("KWIK TRIP") || m.includes("EXXON")) return "Gas";
+  if (n.includes("VERIZON") || m.includes("VERIZON")) return "Phone";
+  if (n.includes("KWIK TRIP") || n.includes("EXXON") || n.includes("SHELL") || m.includes("KWIK TRIP") || m.includes("EXXON") || m.includes("SHELL")) return "Gas";
   if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
-  if (n.includes("PICK N SAVE") || m.includes("PICK N SAVE")) return "Groceries";
+  if (n.includes("TARGET") || m.includes("TARGET")) return "Shopping";
+  if (n.includes("WALMART") || m.includes("WALMART")) return "Shopping";
+  if (n.includes("PICK N SAVE") || n.includes("KROGER") || m.includes("PICK N SAVE") || m.includes("KROGER")) return "Groceries";
+  if (n.includes("COSTCO") || m.includes("COSTCO")) return "Groceries";
 
-  // income guess
-  if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) return "Income";
+  // Subscriptions (heuristic)
+  if (n.includes("DISNEY") || n.includes("APPLE") || n.includes("NETFLIX") || n.includes("HULU") || n.includes("SPOTIFY") || n.includes("CHATGPT")
+      || m.includes("DISNEY") || m.includes("APPLE") || m.includes("NETFLIX") || m.includes("HULU") || m.includes("SPOTIFY") || m.includes("CHATGPT")) {
+    return "Subscriptions";
+  }
 
-  return amount < 0 ? "Discretionary" : "Other";
+  // Income guess: credits with payroll-ish text
+  if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) {
+    return "Income";
+  }
+
+  // Fallback
+  return amount < 0 ? "Other" : "Other";
 }
 
-/* =========================
-   Import
-========================= */
+function categorize(txType, name, memo, amount) {
+  if (isMarkerRow(txType, name, memo)) return "Starting Balance";
+  const merchant = normalizeMerchant(name, memo);
+  const ruleCat = applyRulesCategory(merchant);
+  if (ruleCat) return ruleCat;
+  return heuristicCategory(txType, merchant, memo, amount);
+}
+
+function recategorizeAll() {
+  allTransactions = allTransactions.map(t => {
+    if (t.category === "Starting Balance") return t;
+    const merchant = normalizeMerchant(t.name, t.memo);
+    const cat = categorize(t.txType, t.name, t.memo, t.amount);
+    return { ...t, merchant, category: cat };
+  });
+  saveAll();
+}
+
+/* =========================================================
+   3) Import Pipeline (CSV → schema → dedupe)
+========================================================= */
 async function importCSVFile(file) {
   const text = await file.text();
   const rows = parseCSV(text);
@@ -304,6 +460,7 @@ async function importCSVFile(file) {
 
   let added = 0, skipped = 0, failed = 0;
   const debugRows = [];
+  let minISO = null, maxISO = null;
 
   for (const r of rows.slice(1)) {
     try {
@@ -319,30 +476,329 @@ async function importCSVFile(file) {
       const month = yyyymmFromDate(d);
       const dateISO = d.toISOString().slice(0, 10);
 
+      minISO = (!minISO || dateISO < minISO) ? dateISO : minISO;
+      maxISO = (!maxISO || dateISO > maxISO) ? dateISO : maxISO;
+
+      const merchant = normalizeMerchant(name, memo);
       const category = categorize(txType, name, memo, amount);
 
-      // Dedup: date + txType + name + memo + amount
+      // Dedup key: date + txType + name + memo + amount
       const key = `${dateISO}|${(txType||"").toUpperCase()}|${name}|${memo}|${amount.toFixed(2)}`;
       if (allTransactions.some(t => t.key === key)) { skipped++; continue; }
 
-      const record = { key, dateISO, month, txType, name, memo, amount, category };
+      const record = { key, dateISO, month, txType, name, memo, merchant, amount, category };
       allTransactions.push(record);
       added++;
+
       if (debugRows.length < 6) debugRows.push(record);
     } catch {
       failed++;
     }
   }
 
+  // Audit trail
+  importMeta.push({
+    fileName: file.name,
+    importedAtISO: new Date().toISOString(),
+    added, skipped, failed,
+    range: { minISO, maxISO }
+  });
+
   saveAll();
-  return { added, skipped, failed, debugRows };
+  return { added, skipped, failed, debugRows, range: { minISO, maxISO } };
 }
 
-/* =========================
-   UI
-========================= */
+/* =========================================================
+   4) Smart Insights
+   4a) Recurring detector (monthly-ish)
+   4b) Paycheck detector (biweekly-ish) + overtime spikes
+========================================================= */
+function groupBy(arr, keyFn) {
+  const m = new Map();
+  for (const x of arr) {
+    const k = keyFn(x);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(x);
+  }
+  return m;
+}
+
+function median(nums) {
+  const a = nums.slice().sort((x,y)=>x-y);
+  if (!a.length) return 0;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid-1] + a[mid]) / 2;
+}
+
+function detectRecurring(transactions) {
+  // Use debits only; ignore transfers + starting balance
+  const tx = transactions
+    .filter(t => t.category !== "Starting Balance")
+    .filter(t => t.amount < 0)
+    .filter(t => t.category !== "Transfer");
+
+  const byMerchant = groupBy(tx, t => (t.merchant || t.name || "").toLowerCase().trim());
+  const results = [];
+
+  for (const [merchantKey, items] of byMerchant.entries()) {
+    if (!merchantKey) continue;
+    if (items.length < 3) continue; // need some evidence
+
+    // group by month
+    const months = new Set(items.map(i => i.month));
+    if (months.size < 2) continue; // recurring across months
+
+    // Amount stability
+    const amts = items.map(i => Math.abs(i.amount));
+    const med = median(amts);
+    if (med <= 0) continue;
+
+    // typical subscription/bill tolerance:
+    // - subscriptions: small-ish stable
+    // - bills: moderate stable
+    const within = amts.filter(a => Math.abs(a - med) / med <= 0.15).length;
+    const stability = within / amts.length;
+
+    // cadence: check if there are multiple months with a transaction in the same day-of-month +/- 3
+    const doms = items.map(i => parseInt(i.dateISO.slice(8,10), 10));
+    const domMed = median(doms);
+    const domWithin = doms.filter(d => Math.abs(d - domMed) <= 3).length / doms.length;
+
+    // Score
+    const score = 0.55 * stability + 0.45 * domWithin;
+    if (score < 0.6) continue;
+
+    const name = items[0].merchant || items[0].name || "Unknown";
+    const likely = (med < 40) ? "Subscription" : "Bill";
+    results.push({
+      name,
+      likely,
+      typicalAmount: med,
+      monthsCount: months.size,
+      occurrences: items.length,
+      score
+    });
+  }
+
+  results.sort((a,b)=>b.score - a.score);
+  return results.slice(0, 12);
+}
+
+function detectPaychecks(transactions) {
+  // credits only, ignore marker rows
+  const credits = transactions
+    .filter(t => t.category !== "Starting Balance")
+    .filter(t => t.amount > 0);
+
+  if (credits.length < 3) return { summary: "No paycheck pattern yet", paychecks: [], spikes: [] };
+
+  // Candidate payroll credits: either categorized as Income OR look payroll-ish OR big-ish recurring credits
+  const payrollish = credits.filter(t => {
+    const n = (t.name || "").toUpperCase();
+    const m = (t.memo || "").toUpperCase();
+    const cat = (t.category || "");
+    if (cat === "Income") return true;
+    if (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DIRECT DEP") || m.includes("DIRECT DEP")) return true;
+    return t.amount >= 500; // fallback threshold (tune later)
+  });
+
+  if (payrollish.length < 3) return { summary: "No paycheck pattern yet", paychecks: [], spikes: [] };
+
+  // Sort by date
+  const sorted = payrollish.slice().sort((a,b)=>a.dateISO > b.dateISO ? 1 : -1);
+
+  // Find biweekly-ish interval (~14 days) clusters
+  const intervals = [];
+  for (let i=1; i<sorted.length; i++) intervals.push(daysBetweenISO(sorted[i-1].dateISO, sorted[i].dateISO));
+  const intervalMed = median(intervals);
+
+  // Consider it biweekly if median interval is in [13..15]
+  const biweekly = intervalMed >= 13 && intervalMed <= 15;
+
+  // Baseline paycheck amount = median of amounts (absolute)
+  const amounts = sorted.map(t => t.amount);
+  const base = median(amounts);
+
+  // Overtime spikes: paycheck > base * 1.10 (10% above baseline)
+  const spikes = sorted.filter(t => t.amount > base * 1.10).map(t => ({
+    dateISO: t.dateISO,
+    amount: t.amount,
+    delta: t.amount - base
+  }));
+
+  const summary =
+    biweekly
+      ? `Biweekly pattern detected • baseline ${money(base)}`
+      : `Paycheck-like credits detected • baseline ${money(base)} (interval median: ~${Math.round(intervalMed)} days)`;
+
+  return { summary, paychecks: sorted.slice(-8), spikes: spikes.slice(-6) };
+}
+
+/* =========================================================
+   5) Charts: simple pie chart without libraries
+========================================================= */
+function hashToHue(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+function drawPie(canvas, data, title) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width;
+  const H = canvas.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // background
+  ctx.fillStyle = "#0f1726";
+  ctx.fillRect(0, 0, W, H);
+
+  // title
+  ctx.fillStyle = "#e8eefc";
+  ctx.font = "900 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText(title, 18, 28);
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (!total) {
+    ctx.fillStyle = "#9fb0d0";
+    ctx.font = "600 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+    ctx.fillText("No data for this month.", 18, 60);
+    return;
+  }
+
+  const cx = Math.round(W * 0.30);
+  const cy = Math.round(H * 0.55);
+  const r = Math.round(Math.min(W, H) * 0.30);
+
+  let start = -Math.PI / 2;
+  for (const d of data) {
+    const frac = d.value / total;
+    const end = start + frac * Math.PI * 2;
+    const hue = hashToHue(d.label);
+    ctx.fillStyle = `hsl(${hue} 70% 55%)`;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, end);
+    ctx.closePath();
+    ctx.fill();
+    start = end;
+  }
+
+  // center donut effect
+  ctx.fillStyle = "#0f1726";
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.round(r * 0.55), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#e8eefc";
+  ctx.font = "900 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText(money(total), cx - 55, cy + 6);
+
+  // Legend (drawn on canvas right side)
+  const lx = Math.round(W * 0.58);
+  let ly = 60;
+  ctx.font = "700 13px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+
+  const top = data.slice().sort((a,b)=>b.value - a.value).slice(0, 8);
+  for (const d of top) {
+    const hue = hashToHue(d.label);
+    ctx.fillStyle = `hsl(${hue} 70% 55%)`;
+    ctx.fillRect(lx, ly - 10, 14, 14);
+    ctx.fillStyle = "#e8eefc";
+    ctx.fillText(`${d.label}`, lx + 22, ly + 2);
+    ctx.fillStyle = "#9fb0d0";
+    ctx.fillText(`${money(d.value)}`, lx + 240, ly + 2);
+    ly += 22;
+  }
+}
+
+/* =========================================================
+   6) Reconciliation (basic)
+========================================================= */
+function buildReconciliation() {
+  if (!allTransactions.length) return { line: "No imports yet", details: "" };
+
+  const minISO = minDateISO(allTransactions);
+  const maxISO = maxDateISO(allTransactions);
+
+  // Compute missing days across the entire imported range (excluding weekends? We'll show all days; finance still has weekend gaps)
+  const dates = new Set(allTransactions.map(t => t.dateISO));
+  const gaps = [];
+  let cursor = minISO;
+  let inGap = null;
+
+  while (cursor <= maxISO) {
+    const has = dates.has(cursor);
+    if (!has && !inGap) inGap = { start: cursor, end: cursor };
+    if (!has && inGap) inGap.end = cursor;
+    if (has && inGap) { gaps.push(inGap); inGap = null; }
+    cursor = isoAddDays(cursor, 1);
+  }
+  if (inGap) gaps.push(inGap);
+
+  // Show only large gaps (>=4 days) because weekends are common
+  const bigGaps = gaps.filter(g => daysBetweenISO(g.start, g.end) + 1 >= 4).slice(0, 8);
+
+  const lastImport = importMeta.length ? importMeta[importMeta.length - 1] : null;
+  const line = lastImport
+    ? `Last import: +${lastImport.added} (skipped ${lastImport.skipped}, failed ${lastImport.failed}) • Data range ${minISO} → ${maxISO}`
+    : `Data range ${minISO} → ${maxISO}`;
+
+  const details = bigGaps.length
+    ? `Potential missing date gaps (≥4 days): ` + bigGaps.map(g => `${g.start}→${g.end}`).join(" • ")
+    : `No large missing-date gaps detected (weekends ignored by threshold).`;
+
+  return { line, details };
+}
+
+/* =========================================================
+   7) Running balance (computed from marker)
+========================================================= */
+function computeRunningBalanceForMonth(selectedMonth) {
+  const monthTxAll = allTransactions.filter(t => t.month === selectedMonth);
+
+  // as-of date = last date in selected month among imported rows (excluding marker)
+  const asOfISO =
+    maxDateISO(monthTxAll.filter(t => t.category !== "Starting Balance")) ||
+    maxDateISO(monthTxAll) ||
+    null;
+
+  const markers = allTransactions
+    .filter(t => t.category === "Starting Balance")
+    .slice()
+    .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
+
+  let anchor = null;
+  if (asOfISO) {
+    const candidates = markers.filter(m => m.dateISO <= asOfISO);
+    if (candidates.length) anchor = candidates[candidates.length - 1];
+  } else {
+    anchor = markers.length ? markers[markers.length - 1] : null;
+  }
+
+  if (!asOfISO) return { runningBal: null, explain: `No transactions imported for ${selectedMonth}.` };
+  if (!anchor) return { runningBal: null, explain: `No starting balance marker found on/before ${asOfISO}.` };
+
+  const scope = allTransactions
+    .filter(t => t.category !== "Starting Balance")
+    .filter(t => t.dateISO >= anchor.dateISO && t.dateISO <= asOfISO);
+
+  const netSinceAnchor = scope.reduce((s,t)=>s + Number(t.amount || 0), 0);
+  const runningBal = anchor.amount + netSinceAnchor;
+
+  return { runningBal, explain: `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${asOfISO}` };
+}
+
+/* =========================================================
+   8) UI wiring
+========================================================= */
 const els = {
   monthSelect: document.getElementById("monthSelect"),
+  chartMode: document.getElementById("chartMode"),
+  pieCanvas: document.getElementById("pieCanvas"),
+  pieLegend: document.getElementById("pieLegend"),
+
   topLine: document.getElementById("topLine"),
   topSub: document.getElementById("topSub"),
   balanceSub: document.getElementById("balanceSub"),
@@ -355,6 +811,15 @@ const els = {
   balanceBox: document.getElementById("balanceBox"),
   balanceHint: document.getElementById("balanceHint"),
 
+  recurringCount: document.getElementById("recurringCount"),
+  recurringList: document.getElementById("recurringList"),
+
+  paycheckSummary: document.getElementById("paycheckSummary"),
+  paycheckList: document.getElementById("paycheckList"),
+
+  reconLine: document.getElementById("reconLine"),
+  reconDetails: document.getElementById("reconDetails"),
+
   fileInput: document.getElementById("fileInput"),
   importBtn: document.getElementById("importBtn"),
   removeMarkersBtn: document.getElementById("removeMarkersBtn"),
@@ -363,152 +828,229 @@ const els = {
   debug: document.getElementById("debug"),
 
   countPill: document.getElementById("countPill"),
-  tableBody: document.getElementById("tableBody")
+  tableBody: document.getElementById("tableBody"),
+
+  ruleContains: document.getElementById("ruleContains"),
+  ruleCategory: document.getElementById("ruleCategory"),
+  addRuleBtn: document.getElementById("addRuleBtn"),
+  reapplyRulesBtn: document.getElementById("reapplyRulesBtn"),
+  clearRulesBtn: document.getElementById("clearRulesBtn"),
+  rulesTableWrap: document.getElementById("rulesTableWrap")
 };
 
 function getSelectedMonth() {
   return els.monthSelect.value || yyyymmFromDate(new Date());
 }
 
-function maxDateISO(records) {
-  if (!records.length) return null;
-  return records.reduce((max, r) => (r.dateISO > max ? r.dateISO : max), records[0].dateISO);
-}
-
-function updateDashboard() {
-  const sel = getSelectedMonth();
-  const monthTxAll = allTransactions.filter(t => t.month === sel);
-
-  // Month totals exclude marker rows
+function monthTotals(month) {
+  const monthTxAll = allTransactions.filter(t => t.month === month);
   const monthTx = monthTxAll.filter(t => t.category !== "Starting Balance");
 
-  const totalIncome = monthTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
-  const totalOutflows = monthTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const income = monthTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
+  const outflows = monthTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
 
   const transferOut = monthTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
   const transferIn  = monthTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
-  const transferNet = transferIn - transferOut;
+  const transfers = transferIn - transferOut;
 
   const spending = monthTx
     .filter(t => t.amount < 0)
     .filter(t => t.category !== "Transfer")
     .reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  const netChangeMonth = monthTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
+  const netChange = monthTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
 
-  // AS-OF DATE for balance = last imported transaction date in selected month (excluding marker rows)
-  const asOfISO = maxDateISO(monthTxAll.filter(t => t.category !== "Starting Balance")) || maxDateISO(monthTxAll) || null;
+  return { income, outflows, transfers, spending, netChange, monthTxAll, monthTx };
+}
 
-  // Anchor = most recent marker row on or before asOfISO
-  const markers = allTransactions
-    .filter(t => t.category === "Starting Balance")
-    .slice()
-    .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
+function buildCategoryBreakdown(monthTx) {
+  // spending breakdown: negative amounts, excluding transfers, excluding marker rows
+  const spend = monthTx
+    .filter(t => t.amount < 0)
+    .filter(t => t.category !== "Transfer");
 
-  let anchor = null;
-  if (asOfISO) {
-    const candidates = markers.filter(m => m.dateISO <= asOfISO);
-    if (candidates.length) anchor = candidates[candidates.length - 1];
-  } else {
-    // if no tx in month, still allow anchor if exists, but we can't compute to an as-of date
-    anchor = markers.length ? markers[markers.length - 1] : null;
+  const byCat = new Map();
+  for (const t of spend) {
+    const cat = t.category || "Other";
+    byCat.set(cat, (byCat.get(cat) || 0) + Math.abs(t.amount));
   }
 
-  let runningBal = null;
-  let explain = "";
+  const data = Array.from(byCat.entries()).map(([label, value]) => ({ label, value }));
+  data.sort((a,b)=>b.value - a.value);
+  return data;
+}
 
-  if (!asOfISO) {
-    runningBal = null;
-    explain = `No transactions imported for ${sel}. Import a CSV that includes this month.`;
-  } else if (!anchor) {
-    runningBal = null;
-    explain = `No starting balance marker found on/before ${asOfISO}. Add a row with Transaction=Balance (or Name/Memo contains "starting balance").`;
-  } else {
-    // sum all non-marker tx from anchor.dateISO through asOfISO
-    const scope = allTransactions
-      .filter(t => t.category !== "Starting Balance")
-      .filter(t => t.dateISO >= anchor.dateISO && t.dateISO <= asOfISO);
-
-    const netSinceAnchor = scope.reduce((s,t)=>s + Number(t.amount || 0), 0);
-    runningBal = anchor.amount + netSinceAnchor;
-
-    explain = `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → balance as of ${asOfISO}`;
+function updateRulesTable() {
+  if (!userRules.length) {
+    els.rulesTableWrap.innerHTML = `<p class="small">No rules yet.</p>`;
+    return;
   }
 
-  // Render
-  els.income.textContent = money(totalIncome);
-  els.outflows.textContent = money(totalOutflows);
-  els.spending.textContent = money(spending);
-  els.transfers.textContent = money(transferNet);
-  els.netChange.textContent = money(netChangeMonth);
+  const rows = userRules.map((r, idx) => `
+    <tr>
+      <td class="mono">${idx + 1}</td>
+      <td class="mono">${escapeHtml(r.contains || "")}</td>
+      <td>${escapeHtml(r.category || "")}</td>
+      <td><button class="ghost" data-del="${idx}">Delete</button></td>
+      <td><button class="ghost" data-up="${idx}">Up</button></td>
+      <td><button class="ghost" data-down="${idx}">Down</button></td>
+    </tr>
+  `).join("");
 
-  // Top KPI = spending (what most people want) + balance line
-  els.topLine.textContent = money(spending);
+  els.rulesTableWrap.innerHTML = `
+    <div style="overflow:auto;">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Contains</th><th>Category</th><th></th><th></th><th></th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  els.rulesTableWrap.querySelectorAll("button[data-del]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-del"));
+      userRules.splice(i, 1);
+      saveAll();
+      updateRulesTable();
+      recategorizeAll();
+      updateDashboard();
+    });
+  });
+
+  els.rulesTableWrap.querySelectorAll("button[data-up]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-up"));
+      if (i <= 0) return;
+      const tmp = userRules[i-1];
+      userRules[i-1] = userRules[i];
+      userRules[i] = tmp;
+      saveAll();
+      updateRulesTable();
+      recategorizeAll();
+      updateDashboard();
+    });
+  });
+
+  els.rulesTableWrap.querySelectorAll("button[data-down]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-down"));
+      if (i >= userRules.length - 1) return;
+      const tmp = userRules[i+1];
+      userRules[i+1] = userRules[i];
+      userRules[i] = tmp;
+      saveAll();
+      updateRulesTable();
+      recategorizeAll();
+      updateDashboard();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s || "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#39;");
+}
+
+function updateDashboard() {
+  const sel = getSelectedMonth();
+
+  // Recompute totals
+  const totals = monthTotals(sel);
+
+  // KPIs
+  els.income.textContent = money(totals.income);
+  els.outflows.textContent = money(totals.outflows);
+  els.spending.textContent = money(totals.spending);
+  els.transfers.textContent = money(totals.transfers);
+  els.netChange.textContent = money(totals.netChange);
+
+  // Top KPI = spending by default
+  els.topLine.textContent = money(totals.spending);
   els.topSub.textContent = `Spending this month (transfers excluded) • ${sel}`;
 
-  if (runningBal === null) {
-    els.balanceSub.innerHTML = `<span class="warn">Running balance unavailable</span> • ${explain}`;
+  // Running balance
+  const bal = computeRunningBalanceForMonth(sel);
+  if (bal.runningBal === null) {
+    els.balanceSub.innerHTML = `<span class="warn">Running balance unavailable</span> • ${escapeHtml(bal.explain)}`;
     els.balanceBox.textContent = "(missing)";
-    els.balanceHint.textContent = explain;
+    els.balanceHint.textContent = bal.explain;
   } else {
-    els.balanceSub.textContent = `Running balance: ${money(runningBal)} • ${explain}`;
-    els.balanceBox.textContent = money(runningBal);
-    els.balanceHint.textContent = explain;
+    els.balanceSub.textContent = `Running balance: ${money(bal.runningBal)} • ${bal.explain}`;
+    els.balanceBox.textContent = money(bal.runningBal);
+    els.balanceHint.textContent = bal.explain;
   }
 
+  // Pie chart
+  if (els.chartMode.value === "cashflow") {
+    const data = [
+      { label: "Income", value: totals.income },
+      { label: "Outflows", value: totals.outflows }
+    ];
+    drawPie(els.pieCanvas, data, `Cashflow • ${sel}`);
+    els.pieLegend.textContent = `Income: ${money(totals.income)} • Outflows: ${money(totals.outflows)}`;
+  } else {
+    const catData = buildCategoryBreakdown(totals.monthTx);
+    drawPie(els.pieCanvas, catData, `Spending by Category • ${sel}`);
+    const top5 = catData.slice(0,5).map(d => `${d.label}: ${money(d.value)}`).join(" • ");
+    els.pieLegend.textContent = top5 || "No spending data.";
+  }
+
+  // Smart insights (use ALL history, not just month)
+  const recurring = detectRecurring(allTransactions);
+  els.recurringCount.textContent = String(recurring.length);
+  els.recurringList.innerHTML = recurring.length
+    ? recurring.map(r => {
+        const tag = r.likely === "Subscription" ? "Subscription" : "Bill";
+        return `<div class="chip"><span class="tag">${tag}</span><b>${escapeHtml(r.name)}</b><span class="mono">${money(r.typicalAmount)}</span><span class="hint">score ${(r.score*100).toFixed(0)}%</span></div>`;
+      }).join(" ")
+    : `<span class="hint">Not enough history yet. Import 2+ months of data and this will light up.</span>`;
+
+  const paycheck = detectPaychecks(allTransactions);
+  els.paycheckSummary.textContent = paycheck.summary;
+  const spikeLines = paycheck.spikes.length
+    ? `<div class="small"><b>Overtime spikes:</b> ` + paycheck.spikes.map(s => `${s.dateISO} ${money(s.amount)} (+${money(s.delta)})`).join(" • ") + `</div>`
+    : `<div class="small hint">No overtime spikes detected (yet).</div>`;
+  const lastChecks = paycheck.paychecks.length
+    ? `<div class="small"><b>Recent paycheck-like credits:</b> ` + paycheck.paychecks.map(p => `${p.dateISO} ${money(p.amount)}`).join(" • ") + `</div>`
+    : `<div class="small hint">Need more credit history to detect paychecks.</div>`;
+  els.paycheckList.innerHTML = lastChecks + spikeLines;
+
+  // Reconciliation
+  const recon = buildReconciliation();
+  els.reconLine.textContent = recon.line;
+  els.reconDetails.textContent = recon.details;
+
   // Table
-  els.countPill.textContent = `${monthTxAll.length} rows`;
+  els.countPill.textContent = `${totals.monthTxAll.length} rows`;
   els.tableBody.innerHTML = "";
-  monthTxAll
+
+  totals.monthTxAll
     .slice()
     .sort((a,b) => a.dateISO < b.dateISO ? 1 : -1)
-    .slice(0, 500)
+    .slice(0, 600)
     .forEach(t => {
-      const row = document.createElement("tr");
       const amtClass = t.amount >= 0 ? "pos" : "neg";
+      const row = document.createElement("tr");
       row.innerHTML = `
         <td class="mono">${t.dateISO}</td>
-        <td class="mono">${(t.txType || "")}</td>
-        <td>${t.name}</td>
-        <td>${t.memo || ""}</td>
-        <td><span class="pill">${t.category}</span></td>
-        <td class="mono ${amtClass}">${money(t.amount)}</td>
+        <td class="mono">${escapeHtml(t.txType || "")}</td>
+        <td>${escapeHtml(t.merchant || t.name || "")}</td>
+        <td>${escapeHtml(t.memo || "")}</td>
+        <td><span class="pill">${escapeHtml(t.category || "Other")}</span></td>
+        <td class="mono right ${amtClass}">${money(t.amount)}</td>
       `;
       els.tableBody.appendChild(row);
     });
 }
 
-/* =========================
-   Controls
-========================= */
-function removeAllMarkers() {
-  const before = allTransactions.length;
-  allTransactions = allTransactions.filter(t => t.category !== "Starting Balance");
-  const removed = before - allTransactions.length;
-  saveAll();
-  els.status.textContent = `Removed ${removed} starting-balance marker rows.`;
-  updateDashboard();
-}
-
-function clearAll() {
-  if (!confirm("Start fresh? This deletes ALL imported data.")) return;
-  allTransactions = [];
-  localStorage.clear();
-  els.status.textContent = "Deleted everything. Import a new CSV to start.";
-  els.debug.textContent = "";
-  els.monthSelect.value = yyyymmFromDate(new Date());
-  updateDashboard();
-}
-
-/* =========================
-   Wire UI
-========================= */
+/* =========================================================
+   9) Buttons / Events
+========================================================= */
 els.monthSelect.addEventListener("change", updateDashboard);
-els.removeMarkersBtn.addEventListener("click", () => {
-  if (!confirm("Remove ALL Starting Balance marker rows?")) return;
-  removeAllMarkers();
-});
-els.clearBtn.addEventListener("click", clearAll);
+els.chartMode.addEventListener("change", updateDashboard);
 
 els.importBtn.addEventListener("click", async () => {
   const f = els.fileInput.files && els.fileInput.files[0];
@@ -519,18 +1061,20 @@ els.importBtn.addEventListener("click", async () => {
 
   try {
     const res = await importCSVFile(f);
-    els.status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}.`;
+    els.status.textContent = `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Range: ${res.range.minISO || "?"} → ${res.range.maxISO || "?"}`;
 
     if (res.debugRows.length) {
       els.debug.textContent =
         "Parsed sample rows:\n" +
         res.debugRows.map(r =>
-          `${r.dateISO} | ${r.txType || ""} | name="${r.name}" | memo="${r.memo || ""}" | amt=${r.amount} | cat=${r.category}`
+          `${r.dateISO} | ${r.txType || ""} | "${r.merchant}" | amt=${r.amount} | cat=${r.category}`
         ).join("\n");
     } else {
       els.debug.textContent = "No rows parsed. If this happens, paste your CSV header row here and I’ll map it.";
     }
 
+    // Ensure categories are consistent after import
+    recategorizeAll();
     updateDashboard();
   } catch (e) {
     els.status.textContent = `Import failed: ${e.message || e}`;
@@ -539,11 +1083,73 @@ els.importBtn.addEventListener("click", async () => {
   }
 });
 
-/* =========================
-   Init
-========================= */
-(function init() {
+els.removeMarkersBtn.addEventListener("click", () => {
+  if (!confirm("Remove ALL Starting Balance marker rows?")) return;
+  const before = allTransactions.length;
+  allTransactions = allTransactions.filter(t => t.category !== "Starting Balance");
+  saveAll();
+  els.status.textContent = `Removed ${before - allTransactions.length} marker rows.`;
+  updateDashboard();
+});
+
+els.clearBtn.addEventListener("click", () => {
+  if (!confirm("Start fresh? This deletes ALL imported data AND rules.")) return;
+  allTransactions = [];
+  userRules = [];
+  importMeta = [];
+  localStorage.clear();
+  els.status.textContent = "Deleted everything. Import a new CSV to start.";
+  els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
+  updateRulesTable();
+  updateDashboard();
+});
+
+els.addRuleBtn.addEventListener("click", () => {
+  const contains = (els.ruleContains.value || "").trim();
+  const category = els.ruleCategory.value;
+  if (!contains) return;
+
+  userRules.unshift({ contains, category, createdAtISO: new Date().toISOString() });
+  els.ruleContains.value = "";
+  saveAll();
+  updateRulesTable();
+  recategorizeAll();
+  updateDashboard();
+});
+
+els.reapplyRulesBtn.addEventListener("click", () => {
+  recategorizeAll();
+  updateDashboard();
+  els.status.textContent = "Reapplied rules to all transactions.";
+  setTimeout(()=>els.status.textContent="", 1200);
+});
+
+els.clearRulesBtn.addEventListener("click", () => {
+  if (!confirm("Delete ALL rules?")) return;
+  userRules = [];
+  saveAll();
+  updateRulesTable();
+  recategorizeAll();
+  updateDashboard();
+});
+
+/* =========================================================
+   10) Init
+========================================================= */
+(function init() {
+  // Initialize month picker to current month
+  els.monthSelect.value = yyyymmFromDate(new Date());
+
+  // Ensure existing transactions have merchant + category fields (backfill)
+  allTransactions = allTransactions.map(t => {
+    const merchant = t.merchant || normalizeMerchant(t.name, t.memo);
+    const category = t.category || categorize(t.txType, t.name, t.memo, t.amount);
+    return { ...t, merchant, category };
+  });
+  saveAll();
+
+  updateRulesTable();
   updateDashboard();
 })();
 </script>
