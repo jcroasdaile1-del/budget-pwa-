@@ -12,9 +12,10 @@
     .card { background:#121a2b; padding:16px; border-radius:12px; margin-bottom:16px; border:1px solid #24314f; }
     .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
     .btnRow { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-start; }
-    button { padding:10px 14px; border-radius:10px; border:none; font-weight:800; cursor:pointer; }
+    button { padding:10px 14px; border-radius:10px; border:none; font-weight:900; cursor:pointer; }
     .primary { background:#64d2ff; color:#0b1220; }
     .danger { background:#ff6b6b; color:#fff; }
+    .ghost { background:#0f1726; color:#e8eefc; border:1px solid #24314f; }
     input, select { padding:10px; border-radius:10px; border:1px solid #24314f; background:#0f1726; color:#e8eefc; width:100%; }
     label { font-size:12px; color:#9fb0d0; display:block; margin-bottom:6px; }
     table { width:100%; font-size:12px; border-collapse:collapse; }
@@ -53,9 +54,10 @@
     </div>
 
     <p class="small">
-      This app is <b>CSV-driven</b>. To compute balances, include a row in the CSV like:
-      <span class="mono">02/01/2026, BALANCE, STARTING BALANCE, , 5000</span>
-      (columns can vary; the app maps headers).
+      <b>Starting balance rule:</b> add ONE row in your CSV where either <span class="mono">Name</span> or
+      <span class="mono">Memo</span> contains the phrase <span class="mono">starting balance</span>.
+      Put the starting balance number in the <span class="mono">Amount</span> column on that same row.
+      (Example Name: <span class="mono">STARTING BALANCE</span>)
     </p>
   </div>
 
@@ -101,8 +103,8 @@
     </div>
 
     <p class="small">
-      If your “monthly total” doesn’t match expectation, the usual cause is missing transactions for that month
-      or missing/incorrect starting balance row.
+      If totals still look wrong, it usually means either (1) the CSV doesn’t include all transactions for the month,
+      or (2) the “starting balance” row is not dated at (or before) the first real transaction included in the CSV.
     </p>
   </div>
 
@@ -110,11 +112,18 @@
     <h3 style="margin:0 0 10px;">Import CSV</h3>
     <input type="file" id="fileInput" accept=".csv,text/csv" />
     <div class="btnRow" style="margin-top:10px;">
-      <button class="primary" id="importBtn">Import</button>
-      <button class="danger" id="clearBtn">Clear All Data</button>
+      <button class="primary" id="importBtn">Import (Add to History)</button>
+      <button class="ghost" id="resetBtn">Reset Balance to $0 (Keep Transactions)</button>
+      <button class="danger" id="clearBtn">Start Fresh (Delete Everything)</button>
     </div>
     <p id="status" class="small"></p>
     <div id="debug" class="small mono"></div>
+
+    <p class="small">
+      <b>Reset options:</b><br/>
+      • <b>Reset Balance to $0</b> sets a “reset anchor” so the computed balance starts at 0 from that point forward (keeps history).<br/>
+      • <b>Start Fresh</b> deletes all imported data so you can begin from a new CSV.
+    </p>
   </div>
 
   <div class="card">
@@ -128,7 +137,8 @@
         <thead>
           <tr>
             <th>Date</th>
-            <th>Merchant</th>
+            <th>Name</th>
+            <th>Memo</th>
             <th>Type</th>
             <th>Category</th>
             <th class="mono">Amount</th>
@@ -218,40 +228,49 @@ function parseMoney(value) {
 ========================= */
 let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
 
-/* =========================
-   Normalization + categorization
-========================= */
-function normalizeMerchant(raw) {
-  let s = (raw || "").toUpperCase().replace(/\s+/g, " ").trim();
+/** A reset anchor lets you keep history but restart balance math.
+ *  Stored as: { dateISO: "YYYY-MM-DD", balance: 0 }
+ *  If set, we compute balances only from tx >= anchor date and treat starting balance as anchor.balance.
+ */
+let resetAnchor = JSON.parse(localStorage.getItem("resetAnchor") || "null");
 
-  // Special marker for starting balance row:
-  if (s.includes("STARTING BALANCE")) return "STARTING BALANCE";
-
-  if (s.includes("AMAZON")) return "Amazon";
-  if (s.includes("PICK N SAVE")) return "Pick 'n Save";
-  if (s.includes("KWIK TRIP")) return "Kwik Trip";
-  if (s.includes("EXXON")) return "Exxon";
-  if (s.includes("SPECTRUM")) return "Spectrum";
-  if (s.includes("USCELL")) return "US Cellular";
-  if (s.includes("FID BKG SVC") || s.includes("FIDELITY")) return "Fidelity";
-  if (s.includes("PAYMENT TO CREDIT CARD") || s.includes("CREDIT CARD")) return "Credit Card Payment";
-
-  return raw || "(Unknown)";
+function saveAll() {
+  localStorage.setItem("transactions", JSON.stringify(allTransactions));
+  if (resetAnchor) localStorage.setItem("resetAnchor", JSON.stringify(resetAnchor));
+  else localStorage.removeItem("resetAnchor");
 }
 
-function categorize(type, merchant, amount) {
-  const t = (type || "").toUpperCase();
-  const m = (merchant || "").toUpperCase();
+/* =========================
+   Categorization
+========================= */
+function isStartingBalanceMarker(name, memo, type) {
+  const n = (name || "").toLowerCase();
+  const m = (memo || "").toLowerCase();
+  const t = (type || "").toLowerCase();
+  return n.includes("starting balance") || m.includes("starting balance") || t === "balance";
+}
 
-  if (m.includes("STARTING BALANCE") || t === "BALANCE") return "Starting Balance";
-  if (t === "CREDIT" && (m.includes("DEPOSIT") || m.includes("CHECK DEPOSIT") || m.includes("PAYROLL"))) return "Income";
-  if (m.includes("PAYMENT TO CREDIT CARD") || m.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD")) return "Transfer";
-  if (m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
-  if (m.includes("SPECTRUM")) return "Utilities";
-  if (m.includes("US CELL") || m.includes("USCELL")) return "Phone";
-  if (m.includes("KWIK TRIP") || m.includes("EXXON")) return "Gas";
-  if (m.includes("AMAZON")) return "Shopping";
-  if (m.includes("PICK N SAVE")) return "Groceries";
+function categorize(type, name, memo, amount) {
+  const t = (type || "").toUpperCase();
+  const n = (name || "").toUpperCase();
+  const m = (memo || "").toUpperCase();
+
+  if (isStartingBalanceMarker(name, memo, type)) return "Starting Balance";
+
+  // basic transfer heuristics
+  if (n.includes("PAYMENT TO CREDIT CARD") || n.includes("CREDIT CARD PAYMENT") || n.includes("CREDIT CARD")) return "Transfer";
+  if (m.includes("PAYMENT TO CREDIT CARD") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
+
+  // starter buckets
+  if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
+  if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
+  if (n.includes("US CELL") || n.includes("USCELL") || m.includes("USCELL")) return "Phone";
+  if (n.includes("KWIK TRIP") || n.includes("EXXON") || m.includes("KWIK TRIP") || m.includes("EXXON")) return "Gas";
+  if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
+  if (n.includes("PICK N SAVE") || m.includes("PICK N SAVE")) return "Groceries";
+
+  // Income guess
+  if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) return "Income";
 
   return amount < 0 ? "Discretionary" : "Other";
 }
@@ -270,8 +289,6 @@ function indexOfAny(headers, candidates) {
 
 /* =========================
    Import
-   - imports ALL rows
-   - dedupes on date+merchant+amount+type
 ========================= */
 async function importCSVFile(file) {
   const text = await file.text();
@@ -281,12 +298,12 @@ async function importCSVFile(file) {
   const header = rows[0].map(h => (h || "").trim());
   const iDate = indexOfAny(header, ["Date", "Posting Date", "Transaction Date"]);
   const iType = indexOfAny(header, ["Transaction", "Type"]);
-  const iMerchant = indexOfAny(header, ["Merchant", "Name", "Description"]);
+  const iName = indexOfAny(header, ["Name", "Merchant", "Description"]);
   const iMemo = indexOfAny(header, ["Memo", "Details", "Note"]);
   const iAmount = indexOfAny(header, ["Amount", "Transaction Amount"]);
 
-  if (iDate < 0 || iMerchant < 0 || iAmount < 0) {
-    throw new Error("Missing required columns. Need at least: Date + Merchant/Description + Amount.");
+  if (iDate < 0 || iName < 0 || iAmount < 0) {
+    throw new Error("Missing required columns. Need at least: Date + Name/Merchant + Amount.");
   }
 
   let added = 0, skipped = 0, failed = 0;
@@ -296,43 +313,34 @@ async function importCSVFile(file) {
     try {
       const dateStr = (r[iDate] ?? "").trim();
       const type = (iType >= 0 ? (r[iType] ?? "").trim() : "").toUpperCase();
-      const rawMerchant = (r[iMerchant] ?? "").trim();
-      const memo = iMemo >= 0 ? (r[iMemo] ?? "").trim() : "";
+      const name = (r[iName] ?? "").trim();
+      const memo = (iMemo >= 0 ? (r[iMemo] ?? "").trim() : "");
       const amount = parseMoney(r[iAmount]);
 
       const d = parseUSDate(dateStr);
       if (!d || amount === null) { failed++; continue; }
 
-      const merchant = normalizeMerchant(rawMerchant);
-      const category = categorize(type, merchant, amount);
       const month = yyyymmFromDate(d);
       const dateISO = d.toISOString().slice(0, 10);
 
-      const key = `${dateISO}|${merchant}|${amount.toFixed(2)}|${type || ""}`;
+      const category = categorize(type, name, memo, amount);
+
+      // Dedup: date + name + memo + amount + type
+      const key = `${dateISO}|${name}|${memo}|${amount.toFixed(2)}|${type || ""}`;
       const exists = allTransactions.some(t => t.key === key);
       if (exists) { skipped++; continue; }
 
-      const record = {
-        key,
-        dateISO,
-        month,
-        type,
-        rawMerchant,
-        merchant,
-        memo,
-        amount,
-        category
-      };
-
+      const record = { key, dateISO, month, type, name, memo, amount, category };
       allTransactions.push(record);
       added++;
+
       if (debugRows.length < 4) debugRows.push(record);
     } catch {
       failed++;
     }
   }
 
-  localStorage.setItem("transactions", JSON.stringify(allTransactions));
+  saveAll();
   return { added, skipped, failed, debugRows };
 }
 
@@ -354,6 +362,7 @@ const els = {
 
   fileInput: document.getElementById("fileInput"),
   importBtn: document.getElementById("importBtn"),
+  resetBtn: document.getElementById("resetBtn"),
   clearBtn: document.getElementById("clearBtn"),
   status: document.getElementById("status"),
   debug: document.getElementById("debug"),
@@ -368,56 +377,80 @@ function getSelectedMonth() {
 
 function updateDashboard() {
   const sel = getSelectedMonth();
+
+  // Apply reset anchor for balance math (optional)
+  const balanceScopeTx = resetAnchor
+    ? allTransactions.filter(t => t.dateISO >= resetAnchor.dateISO)
+    : allTransactions.slice();
+
   const monthTx = allTransactions.filter(t => t.month === sel);
 
-  // Starting balance row(s) for the month (we use earliest date in month; if multiple, earliest wins)
+  // Starting balance row(s) for this month: look for marker in NAME or MEMO or Type=Balance
   const startRows = monthTx
-    .filter(t => t.category === "Starting Balance" || (t.merchant || "").toUpperCase().includes("STARTING BALANCE"))
+    .filter(t => t.category === "Starting Balance")
     .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
 
-  const startBal = startRows.length ? startRows[0].amount : null;
-  const startDateISO = startRows.length ? startRows[0].dateISO : null;
-
-  // For totals, exclude the synthetic starting balance row from computations
-  const realTx = monthTx.filter(t => !(t.category === "Starting Balance"));
+  // For month totals, exclude synthetic starting balance rows
+  const realTx = monthTx.filter(t => t.category !== "Starting Balance");
 
   const totalIncome = realTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
   const totalOutflows = realTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  // Transfers: net of items categorized as Transfer
   const transferOut = realTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
   const transferIn  = realTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
   const transferNet = transferIn - transferOut;
 
-  // Spending = debits excluding transfers
   const spending = realTx
     .filter(t => t.amount < 0)
     .filter(t => t.category !== "Transfer")
     .reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  // Net change = sum of all real transactions (includes transfers)
   const netChangeAll = realTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
 
-  // End balance computed if starting balance exists
+  // Month-level balance: if resetAnchor exists and is within month, we use it; otherwise we use month starting balance row.
+  let startBal = null;
+  let startHint = "";
+
+  const monthStartISO = `${sel}-01`;
+
+  if (resetAnchor && resetAnchor.dateISO >= monthStartISO && resetAnchor.dateISO <= `${sel}-31`) {
+    // reset anchor falls in this month
+    startBal = resetAnchor.balance;
+    startHint = `Using reset anchor on ${resetAnchor.dateISO} (balance starts at ${money(resetAnchor.balance)})`;
+  } else if (startRows.length) {
+    startBal = startRows[0].amount;
+    startHint = `Using “starting balance” row dated ${startRows[0].dateISO}`;
+  } else if (resetAnchor && resetAnchor.dateISO < monthStartISO) {
+    // If reset anchor is earlier than this month and there is no month start row,
+    // we cannot infer the true start of month without prior month close, so we show missing.
+    startBal = null;
+    startHint = `No starting balance row found for ${sel}. Add one line with “starting balance” in Name or Memo.`;
+  } else {
+    startBal = null;
+    startHint = `No starting balance row found for ${sel}. Add one line with “starting balance” in Name or Memo.`;
+  }
+
+  // End balance for month (computed) only if startBal exists
   let endBal = null;
   if (startBal !== null) endBal = startBal + netChangeAll;
 
-  // Render KPIs
+  // Render totals
   els.income.textContent = money(totalIncome);
   els.outflows.textContent = money(totalOutflows);
   els.spending.textContent = money(spending);
   els.transfers.textContent = money(transferNet);
   els.netChange.textContent = money(netChangeAll);
 
+  // Render balance
   if (startBal === null) {
     els.startBal.textContent = "(missing)";
-    els.startBalHint.textContent = "Add a 'STARTING BALANCE' row in your CSV for this month.";
+    els.startBalHint.textContent = startHint;
     els.endBalance.textContent = "(missing)";
     els.endBalance.style.color = "#9fb0d0";
-    els.balanceLine.textContent = "To compute balances: add a CSV row with Merchant = STARTING BALANCE and Amount = your balance on the first day of the month.";
+    els.balanceLine.textContent = "Add a row where Name or Memo contains “starting balance” and Amount is the starting balance.";
   } else {
     els.startBal.textContent = money(startBal);
-    els.startBalHint.textContent = `Using starting balance row dated ${startDateISO}`;
+    els.startBalHint.textContent = startHint;
     els.endBalance.textContent = money(endBal);
     els.endBalance.style.color = (endBal >= 0 ? "#6bff95" : "#ff6b6b");
     els.balanceLine.textContent = `Start: ${money(startBal)} • Net change: ${money(netChangeAll)} • End: ${money(endBal)}`;
@@ -430,13 +463,14 @@ function updateDashboard() {
   monthTx
     .slice()
     .sort((a,b) => a.dateISO < b.dateISO ? 1 : -1)
-    .slice(0, 350)
+    .slice(0, 400)
     .forEach(t => {
       const row = document.createElement("tr");
       const amtClass = t.amount >= 0 ? "pos" : "neg";
       row.innerHTML = `
         <td class="mono">${t.dateISO}</td>
-        <td>${t.merchant}</td>
+        <td>${t.name}</td>
+        <td>${t.memo || ""}</td>
         <td class="mono">${t.type || ""}</td>
         <td><span class="pill">${t.category}</span></td>
         <td class="mono ${amtClass}">${money(t.amount)}</td>
@@ -445,11 +479,31 @@ function updateDashboard() {
     });
 }
 
+/* =========================
+   Reset / clear controls
+========================= */
+function resetBalanceToZero() {
+  // Create/reset anchor at the earliest date of currently selected month OR today if no tx in month.
+  const sel = getSelectedMonth();
+  const monthTx = allTransactions.filter(t => t.month === sel).sort((a,b)=>a.dateISO > b.dateISO ? 1 : -1);
+  const anchorDateISO = monthTx.length ? monthTx[0].dateISO : new Date().toISOString().slice(0,10);
+
+  resetAnchor = { dateISO: anchorDateISO, balance: 0 };
+
+  // Also remove any starting-balance rows from the selected month so they don’t keep affecting the math (optional but helpful)
+  allTransactions = allTransactions.filter(t => !(t.month === sel && t.category === "Starting Balance"));
+
+  saveAll();
+  els.status.textContent = `Balance reset: starting at $0 on ${anchorDateISO}. (History kept)`;
+  updateDashboard();
+}
+
 function clearAll() {
-  if (!confirm("Delete all imported transactions on this device?")) return;
+  if (!confirm("Start fresh? This deletes ALL imported data and resets everything.")) return;
   allTransactions = [];
+  resetAnchor = null;
   localStorage.clear();
-  els.status.textContent = "Cleared.";
+  els.status.textContent = "Deleted everything. Start by importing a new CSV.";
   els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
   updateDashboard();
@@ -460,6 +514,10 @@ function clearAll() {
 ========================= */
 els.monthSelect.addEventListener("change", updateDashboard);
 els.clearBtn.addEventListener("click", clearAll);
+els.resetBtn.addEventListener("click", () => {
+  if (!confirm("Reset balance to $0 (keeps transaction history)?")) return;
+  resetBalanceToZero();
+});
 
 els.importBtn.addEventListener("click", async () => {
   const f = els.fileInput.files && els.fileInput.files[0];
@@ -475,7 +533,7 @@ els.importBtn.addEventListener("click", async () => {
     if (res.debugRows.length) {
       els.debug.textContent =
         "Parsed sample rows:\n" +
-        res.debugRows.map(r => `${r.dateISO} | ${r.merchant} | ${r.amount} | ${r.category}`).join("\n");
+        res.debugRows.map(r => `${r.dateISO} | ${r.name} | ${r.memo || ""} | ${r.amount} | ${r.category}`).join("\n");
     } else {
       els.debug.textContent = "No rows parsed. If this happens, paste your CSV header row here and I’ll map it.";
     }
