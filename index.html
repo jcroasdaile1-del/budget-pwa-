@@ -1277,22 +1277,21 @@ function updateRulesTable() {
   });
 }
 
-function updateTopDelta(balInfo, scope, totals) {
-  const delta = (balInfo && balInfo.deltaFromAnchor !== null && balInfo.deltaFromAnchor !== undefined)
-    ? balInfo.deltaFromAnchor
-    : totals.netChange;
+/* ===================== CHANGE START =======================
+   Top headline is now Monthly Performance = Income - Spending
+   (Transfers excluded). No other behavior changes.
+=========================================================== */
+function updateTopDelta(scope, totals) {
+  const monthlyPerformance = Number(totals.income || 0) - Number(totals.spending || 0);
 
-  els.topLine.textContent = moneySigned(delta);
+  els.topLine.textContent = moneySigned(monthlyPerformance);
   els.topLine.classList.remove("pos","neg");
-  if (delta > 0) els.topLine.classList.add("pos");
-  else if (delta < 0) els.topLine.classList.add("neg");
+  if (monthlyPerformance > 0) els.topLine.classList.add("pos");
+  else if (monthlyPerformance < 0) els.topLine.classList.add("neg");
 
-  if (balInfo && balInfo.anchor) {
-    els.topSub.textContent = `Change vs starting balance (${money(balInfo.anchor.amount)} on ${balInfo.anchor.dateISO}) • ${scope.label}`;
-  } else {
-    els.topSub.textContent = `Net change in scope (no balance marker found) • ${scope.label}`;
-  }
+  els.topSub.textContent = `Monthly Performance (Income − Spending, transfers excluded) • ${scope.label}`;
 }
+/* ====================== CHANGE END ======================== */
 
 function renderCardSettings() {
   if (!cardProfiles.length) {
@@ -1397,8 +1396,11 @@ function updateDashboard() {
 
   els.scopePill.textContent = scope.label;
 
+  // Running balance stays as-is
   const bal = computeRunningBalanceAt(scope.endISO);
-  updateTopDelta(bal, scope, totals);
+
+  // Top headline now uses Monthly Performance
+  updateTopDelta(scope, totals);
 
   els.income.textContent = money(totals.income);
   els.outflows.textContent = money(totals.outflows);
