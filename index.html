@@ -11,6 +11,7 @@
     h1 { font-size:18px; margin:0 0 12px; }
     .card { background:#121a2b; padding:16px; border-radius:12px; margin-bottom:16px; border:1px solid #24314f; }
     .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+    .btnRow { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-start; }
     button { padding:10px 14px; border-radius:10px; border:none; font-weight:700; cursor:pointer; }
     .primary { background:#64d2ff; color:#0b1220; }
     .danger { background:#ff6b6b; color:#fff; }
@@ -25,7 +26,11 @@
     .small { font-size:12px; color:#9fb0d0; line-height:1.4; margin:8px 0 0; }
     .kpi { font-size:34px; font-weight:900; margin:6px 0 0; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-    .btnRow { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-start; }
+    .grid2 { display:grid; grid-template-columns: 1fr; gap:10px; }
+    @media(min-width:820px){ .grid2 { grid-template-columns: 1fr 1fr; } }
+    .kpiBox { background:#0f1726; border:1px solid #24314f; border-radius:12px; padding:12px; }
+    .kpiBox .t { color:#9fb0d0; font-size:12px; }
+    .kpiBox .v { font-size:20px; font-weight:800; margin-top:6px; }
   </style>
 </head>
 
@@ -49,19 +54,52 @@
   </div>
 
   <div class="card">
+    <h3 style="margin:0 0 10px;">Month Totals (Selected Month)</h3>
+    <div class="grid2">
+      <div class="kpiBox">
+        <div class="t">Total Inflows</div>
+        <div id="inflows" class="v pos">$0.00</div>
+      </div>
+      <div class="kpiBox">
+        <div class="t">Total Outflows</div>
+        <div id="outflows" class="v neg">$0.00</div>
+      </div>
+      <div class="kpiBox">
+        <div class="t">Spending (Transfers Excluded)</div>
+        <div id="spending" class="v neg">$0.00</div>
+      </div>
+      <div class="kpiBox">
+        <div class="t">Transfers (Net Impact on Balance)</div>
+        <div id="transfers" class="v">$0.00</div>
+      </div>
+    </div>
+    <p class="small">
+      If your “monthly total” expectation is about spending, use <b>Spending (Transfers Excluded)</b>. If it’s about account balance, use the balance line (which needs a correct starting balance + date).
+    </p>
+  </div>
+
+  <div class="card">
     <h3 style="margin:0 0 10px;">Settings (Monthly)</h3>
 
-    <label>Monthly Take-Home Income</label>
+    <label>Monthly Take-Home Income (for Remaining)</label>
     <input id="income" type="number" step="0.01" placeholder="e.g. 9000" />
 
-    <label>Fixed Monthly Costs</label>
+    <label>Fixed Monthly Costs (for Remaining)</label>
     <input id="fixed" type="number" step="0.01" placeholder="e.g. 4500" />
 
-    <label>Goal Funding This Month</label>
+    <label>Goal Funding This Month (for Remaining)</label>
     <input id="goals" type="number" step="0.01" placeholder="e.g. 500" />
 
-    <label>Starting Balance (for selected month)</label>
-    <input id="startingBalance" type="number" step="0.01" placeholder="e.g. 5000" />
+    <div class="grid2">
+      <div>
+        <label>Starting Balance (Selected Month)</label>
+        <input id="startingBalance" type="text" inputmode="decimal" placeholder="e.g. 5000 or $5,000.00" />
+      </div>
+      <div>
+        <label>Starting Balance Date (Selected Month)</label>
+        <input id="startingBalanceDate" type="date" />
+      </div>
+    </div>
 
     <label>Exclude Transfers From Spending?</label>
     <select id="excludeTransfers">
@@ -75,8 +113,8 @@
     </div>
 
     <p class="small">
-      Note: “Starting Balance” is used to compute an ending balance for the selected month from imported transactions.
-      For account balance math, transfers are included (they affect balance). For spending, transfers are excluded (recommended).
+      Balance accuracy depends on the starting balance being correct <b>as-of the Starting Balance Date</b>.
+      Default is the 1st of the selected month.
     </p>
   </div>
 
@@ -114,9 +152,9 @@
   </div>
 
 <script>
-/** =========================
- * Robust CSV parser (handles quoted commas)
- * ========================= */
+/* =========================
+   Robust CSV parser (quoted commas safe)
+========================= */
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -150,9 +188,9 @@ function parseCSV(text) {
   return rows;
 }
 
-/** =========================
- * Date parsing (MM/DD/YYYY) - Safari-safe
- * ========================= */
+/* =========================
+   Date parsing (MM/DD/YYYY) – Safari-safe
+========================= */
 function parseUSDate(mmddyyyy) {
   const s = (mmddyyyy || "").trim();
   const parts = s.split("/");
@@ -173,8 +211,6 @@ function yyyymmFromDate(d) {
 function money(n) {
   return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
-
-/** Money parsing for $ and commas and (neg) */
 function parseMoney(value) {
   if (value === null || value === undefined) return null;
   let s = String(value).trim();
@@ -188,16 +224,15 @@ function parseMoney(value) {
   if (Number.isNaN(n)) return null;
   return isParenNeg ? -n : n;
 }
+function firstOfMonthISO(yyyymm) {
+  return `${yyyymm}-01`;
+}
 
-/** =========================
- * Storage
- * ========================= */
+/* =========================
+   Storage
+========================= */
 let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
 
-/** Settings are stored as:
- *  settings.base: general monthly settings
- *  settings.startingBalances: { "YYYY-MM": number }
- */
 function loadSettingsRaw() {
   return JSON.parse(localStorage.getItem("settings") || "{}");
 }
@@ -205,9 +240,9 @@ function saveSettingsRaw(obj) {
   localStorage.setItem("settings", JSON.stringify(obj));
 }
 
-/** =========================
- * Normalization / categorization (starter)
- * ========================= */
+/* =========================
+   Normalization / categorization
+========================= */
 function normalizeMerchant(raw) {
   let s = (raw || "").toUpperCase().replace(/\s+/g, " ").trim();
   if (s.includes("AMAZON")) return "Amazon";
@@ -220,7 +255,6 @@ function normalizeMerchant(raw) {
   if (s.includes("PAYMENT TO CREDIT CARD") || s.includes("CREDIT CARD")) return "Credit Card Payment";
   return raw || "(Unknown)";
 }
-
 function categorize(type, merchant, amount) {
   const t = (type || "").toUpperCase();
   const m = (merchant || "").toUpperCase();
@@ -237,9 +271,9 @@ function categorize(type, merchant, amount) {
   return amount < 0 ? "Discretionary" : "Other";
 }
 
-/** =========================
- * Flexible header mapping
- * ========================= */
+/* =========================
+   Flexible header mapping
+========================= */
 function indexOfAny(headers, candidates) {
   const upper = headers.map(h => (h || "").trim().toUpperCase());
   for (const c of candidates) {
@@ -249,89 +283,101 @@ function indexOfAny(headers, candidates) {
   return -1;
 }
 
-/** =========================
- * UI Elements
- * ========================= */
+/* =========================
+   UI elements
+========================= */
 const els = {
   monthSelect: document.getElementById("monthSelect"),
   remaining: document.getElementById("remaining"),
   subline: document.getElementById("subline"),
   balanceLine: document.getElementById("balanceLine"),
+
+  inflows: document.getElementById("inflows"),
+  outflows: document.getElementById("outflows"),
+  spending: document.getElementById("spending"),
+  transfers: document.getElementById("transfers"),
+
   income: document.getElementById("income"),
   fixed: document.getElementById("fixed"),
   goals: document.getElementById("goals"),
   startingBalance: document.getElementById("startingBalance"),
+  startingBalanceDate: document.getElementById("startingBalanceDate"),
   excludeTransfers: document.getElementById("excludeTransfers"),
+
   saveSettingsBtn: document.getElementById("saveSettingsBtn"),
   settingsStatus: document.getElementById("settingsStatus"),
+
   fileInput: document.getElementById("fileInput"),
   importBtn: document.getElementById("importBtn"),
   clearBtn: document.getElementById("clearBtn"),
   status: document.getElementById("status"),
   debug: document.getElementById("debug"),
+
   countPill: document.getElementById("countPill"),
   tableBody: document.getElementById("tableBody")
 };
 
-/** =========================
- * Settings
- * ========================= */
+/* =========================
+   Settings: base + per-month start balance & date
+   settings = {
+     base: { income, fixed, goals, excludeTransfers },
+     month: { "YYYY-MM": { startBalance, startDateISO } }
+   }
+========================= */
+function getSelectedMonth() {
+  return els.monthSelect.value || yyyymmFromDate(new Date());
+}
+
 function loadSettingsForUI() {
   const raw = loadSettingsRaw();
   const base = raw.base || {};
-  const startingBalances = raw.startingBalances || {};
+  const month = raw.month || {};
 
   els.income.value = base.income ?? "";
   els.fixed.value = base.fixed ?? "";
   els.goals.value = base.goals ?? "";
   els.excludeTransfers.value = (base.excludeTransfers ?? true) ? "yes" : "no";
 
-  const selMonth = els.monthSelect.value || yyyymmFromDate(new Date());
-  els.startingBalance.value = (startingBalances[selMonth] ?? "");
+  const sel = getSelectedMonth();
+  const m = month[sel] || {};
+  els.startingBalance.value = (m.startBalance ?? "");
+  els.startingBalanceDate.value = (m.startDateISO ?? firstOfMonthISO(sel));
 
-  return {
-    income: Number(base.income || 0),
-    fixed: Number(base.fixed || 0),
-    goals: Number(base.goals || 0),
-    excludeTransfers: (base.excludeTransfers ?? true),
-    startingBalances
-  };
+  return { base, month };
 }
 
 function saveSettingsFromUI() {
   const raw = loadSettingsRaw();
   const base = raw.base || {};
-  const startingBalances = raw.startingBalances || {};
+  const month = raw.month || {};
 
   base.income = Number(els.income.value || 0);
   base.fixed = Number(els.fixed.value || 0);
   base.goals = Number(els.goals.value || 0);
   base.excludeTransfers = (els.excludeTransfers.value === "yes");
 
-  const selMonth = els.monthSelect.value || yyyymmFromDate(new Date());
+  const sel = getSelectedMonth();
   const sb = parseMoney(els.startingBalance.value);
-  if (sb === null) {
-    delete startingBalances[selMonth];
-  } else {
-    startingBalances[selMonth] = sb;
-  }
+  const sd = (els.startingBalanceDate.value || firstOfMonthISO(sel));
 
-  saveSettingsRaw({ base, startingBalances });
+  month[sel] = month[sel] || {};
+  if (sb === null) delete month[sel].startBalance;
+  else month[sel].startBalance = sb;
+  month[sel].startDateISO = sd;
+
+  saveSettingsRaw({ base, month });
 
   els.settingsStatus.textContent = "Saved.";
   setTimeout(() => els.settingsStatus.textContent = "", 1200);
   updateDashboard();
 }
 
-/** =========================
- * Import
- * - Imports ALL rows, dedupes on date+merchant+amount
- * - If CSV has Balance/Running Balance column, we store it (optional)
- * ========================= */
+/* =========================
+   Import
+========================= */
 async function importCSVFile(file) {
   const text = await file.text();
   const rows = parseCSV(text);
-
   if (rows.length < 2) throw new Error("CSV looks empty.");
 
   const header = rows[0].map(h => (h || "").trim());
@@ -340,7 +386,6 @@ async function importCSVFile(file) {
   const iMerchant = indexOfAny(header, ["Merchant", "Name", "Description"]);
   const iMemo = indexOfAny(header, ["Memo", "Details", "Note"]);
   const iAmount = indexOfAny(header, ["Amount", "Transaction Amount"]);
-  const iBalance = indexOfAny(header, ["Balance", "Running Balance"]);
 
   if (iDate < 0 || iMerchant < 0 || iAmount < 0) {
     throw new Error("Missing required columns. Need at least: Date + Merchant/Description + Amount.");
@@ -365,8 +410,6 @@ async function importCSVFile(file) {
       const month = yyyymmFromDate(d);
       const dateISO = d.toISOString().slice(0, 10);
 
-      const balance = (iBalance >= 0) ? parseMoney(r[iBalance]) : null;
-
       const key = `${dateISO}|${normalized}|${amount.toFixed(2)}`;
       const exists = allTransactions.some(t => t.key === key);
       if (exists) { skipped++; continue; }
@@ -380,13 +423,11 @@ async function importCSVFile(file) {
         merchant: normalized,
         memo,
         amount,
-        balance,
         category
       };
 
       allTransactions.push(record);
       added++;
-
       if (debugRows.length < 3) debugRows.push(record);
     } catch {
       failed++;
@@ -394,27 +435,36 @@ async function importCSVFile(file) {
   }
 
   localStorage.setItem("transactions", JSON.stringify(allTransactions));
-  return { added, skipped, failed, debugRows, hasBalance: (iBalance >= 0) };
+  return { added, skipped, failed, debugRows };
 }
 
-/** =========================
- * Dashboard
- * ========================= */
+/* =========================
+   Dashboard calculations
+========================= */
 function updateDashboard() {
-  const settings = loadSettingsForUI();
-  const raw = loadSettingsRaw();
-  const base = raw.base || {};
-  const startingBalances = raw.startingBalances || {};
+  const sel = getSelectedMonth();
+  const settings = loadSettingsRaw();
+  const base = settings.base || {};
+  const monthSettings = (settings.month || {})[sel] || {};
 
-  const selectedMonth = els.monthSelect.value || yyyymmFromDate(new Date());
-  const monthTx = allTransactions.filter(t => t.month === selectedMonth);
+  // pull UI values into inputs (keeps them in sync on month change)
+  loadSettingsForUI();
 
-  // Spending (transfers optionally excluded)
+  const monthTx = allTransactions.filter(t => t.month === sel);
+
+  const inflow = monthTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
+  const outflow = monthTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
+
+  const transferOut = monthTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const transferIn  = monthTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
+  const transferNet = transferIn - transferOut; // net effect could be +/-
+
   const spending = monthTx
     .filter(t => t.amount < 0)
     .filter(t => (base.excludeTransfers ?? true) ? t.category !== "Transfer" : true)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
+  // Remaining (your “budget” math)
   const income = Number(base.income || 0);
   const fixed = Number(base.fixed || 0);
   const goals = Number(base.goals || 0);
@@ -422,24 +472,34 @@ function updateDashboard() {
 
   els.remaining.textContent = money(remaining);
   els.remaining.style.color = remaining >= 0 ? "#6bff95" : "#ff6b6b";
-
   els.subline.textContent =
-    `Month: ${selectedMonth} • Spending: ${money(spending)} • Transfers excluded: ${(base.excludeTransfers ?? true) ? "Yes" : "No"}`;
+    `Month: ${sel} • Spending: ${money(spending)} • Transfers excluded: ${(base.excludeTransfers ?? true) ? "Yes" : "No"}`;
 
-  // BALANCE: computed from starting balance + net change (including transfers)
-  const startBal = (typeof startingBalances[selectedMonth] === "number") ? startingBalances[selectedMonth] : null;
+  // Month totals cards
+  els.inflows.textContent = money(inflow);
+  els.outflows.textContent = money(outflow);
+  els.spending.textContent = money(spending);
+  els.transfers.textContent = money(transferNet);
+
+  // Balance calc: Starting balance as-of a specific date, then add tx on/after that date in the same month
+  const startBal = (typeof monthSettings.startBalance === "number") ? monthSettings.startBalance : null;
+  const startDateISO = (monthSettings.startDateISO || firstOfMonthISO(sel));
+
   if (startBal === null) {
-    els.balanceLine.textContent = "Balance: set a Starting Balance for this month to compute End Balance.";
+    els.balanceLine.textContent = "Balance: set Starting Balance + Starting Balance Date to compute End Balance.";
   } else {
-    // Net change includes all tx (including transfers) because they affect account balance.
-    const netChangeAll = monthTx.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-    const endBal = startBal + netChangeAll;
-    els.balanceLine.textContent = `Start bal: ${money(startBal)} • Net change: ${money(netChangeAll)} • End bal: ${money(endBal)}`;
+    const netFromStart = monthTx
+      .filter(t => t.dateISO >= startDateISO)
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    const endBal = startBal + netFromStart;
+
+    els.balanceLine.textContent =
+      `Start bal (${startDateISO}): ${money(startBal)} • Net since start: ${money(netFromStart)} • End bal: ${money(endBal)}`;
   }
 
-  els.countPill.textContent = `${monthTx.length} tx`;
-
   // Table
+  els.countPill.textContent = `${monthTx.length} tx`;
   els.tableBody.innerHTML = "";
   monthTx
     .slice()
@@ -458,9 +518,9 @@ function updateDashboard() {
     });
 }
 
-/** =========================
- * Clear
- * ========================= */
+/* =========================
+   Clear
+========================= */
 function clearAll() {
   if (!confirm("Delete all transactions + settings on this device?")) return;
   allTransactions = [];
@@ -468,17 +528,31 @@ function clearAll() {
   els.status.textContent = "Cleared.";
   els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
+  loadSettingsForUI();
   updateDashboard();
 }
 
-/** =========================
- * Wire UI
- * ========================= */
+/* =========================
+   Wire UI
+========================= */
 els.saveSettingsBtn.addEventListener("click", saveSettingsFromUI);
 
 els.monthSelect.addEventListener("change", () => {
-  // When month changes, update the starting balance input to match that month
+  // set defaults for new month if missing
+  const sel = getSelectedMonth();
+  const raw = loadSettingsRaw();
+  raw.month = raw.month || {};
+  raw.month[sel] = raw.month[sel] || {};
+  raw.month[sel].startDateISO = raw.month[sel].startDateISO || firstOfMonthISO(sel);
+  saveSettingsRaw(raw);
+
   loadSettingsForUI();
+  updateDashboard();
+});
+
+els.startingBalanceDate.addEventListener("change", () => {
+  // optional: auto-save when date changes
+  // saveSettingsFromUI();
   updateDashboard();
 });
 
@@ -493,9 +567,8 @@ els.importBtn.addEventListener("click", async () => {
 
   try {
     const res = await importCSVFile(f);
-
     els.status.textContent =
-      `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}. Balance column in CSV: ${res.hasBalance ? "Yes" : "No"}`;
+      `Imported. Added ${res.added}, skipped ${res.skipped} dupes, failed ${res.failed}.`;
 
     if (res.debugRows.length) {
       els.debug.textContent =
@@ -514,11 +587,20 @@ els.importBtn.addEventListener("click", async () => {
   }
 });
 
-/** =========================
- * Init
- * ========================= */
+/* =========================
+   Init
+========================= */
 (function init() {
   els.monthSelect.value = yyyymmFromDate(new Date());
+  const sel = getSelectedMonth();
+
+  // initialize month defaults
+  const raw = loadSettingsRaw();
+  raw.month = raw.month || {};
+  raw.month[sel] = raw.month[sel] || {};
+  raw.month[sel].startDateISO = raw.month[sel].startDateISO || firstOfMonthISO(sel);
+  saveSettingsRaw(raw);
+
   loadSettingsForUI();
   updateDashboard();
 })();
