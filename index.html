@@ -43,8 +43,8 @@
   <!-- TOP SUMMARY -->
   <div class="card">
     <div class="row">
-      <div style="min-width:320px;">
-        <div class="pill">Month Summary</div>
+      <div style="min-width:340px;">
+        <div class="pill">What matters</div>
         <div id="topLine" class="kpi">$0.00</div>
         <div id="topSub" class="small"></div>
         <div id="balanceSub" class="small"></div>
@@ -57,10 +57,12 @@
     </div>
 
     <p class="small">
-      <b>Running balance from a marker row:</b><br/>
-      Add a single row where <span class="mono">Name</span> <i>or</i> <span class="mono">Memo</span> contains
-      <span class="mono">starting balance</span> and put the starting balance number in <span class="mono">Amount</span>.
-      The app will start the running balance from the <b>most recent</b> marker row (by date) and carry forward indefinitely.
+      <b>Starting balance rule (CSV-only):</b><br/>
+      Add one row where either:
+      <span class="mono">Transaction</span> equals <span class="mono">Balance</span> (US Bank export does this), <b>OR</b>
+      <span class="mono">Name</span>/<span class="mono">Memo</span> contains <span class="mono">starting balance</span>.<br/>
+      Put the starting balance number in <span class="mono">Amount</span>.
+      The app uses the <b>most recent</b> marker row (by date) and computes a running balance forward.
     </p>
   </div>
 
@@ -83,7 +85,7 @@
       <div class="kpiBox">
         <div class="t">Spending (Transfers Excluded)</div>
         <div id="spending" class="v neg">$0.00</div>
-        <div class="hint">Debits excluding transfers + excluding marker rows</div>
+        <div class="hint">Debits excluding transfer payments</div>
       </div>
 
       <div class="kpiBox">
@@ -93,13 +95,13 @@
       </div>
 
       <div class="kpiBox">
-        <div class="t">Net Change (All Real Tx)</div>
+        <div class="t">Net Change (All Tx)</div>
         <div id="netChange" class="v">$0.00</div>
-        <div class="hint">Income − debits (includes transfers). Excludes marker rows.</div>
+        <div class="hint">Sum of amounts (this month), excludes marker rows</div>
       </div>
 
       <div class="kpiBox">
-        <div class="t">Balance (Computed from Marker)</div>
+        <div class="t">Running Balance (Computed)</div>
         <div id="balanceBox" class="v">$0.00</div>
         <div id="balanceHint" class="hint"></div>
       </div>
@@ -111,7 +113,7 @@
     <input type="file" id="fileInput" accept=".csv,text/csv" />
     <div class="btnRow" style="margin-top:10px;">
       <button class="primary" id="importBtn">Import (Add to History)</button>
-      <button class="ghost" id="removeMarkersBtn">Remove ALL “Starting Balance” Rows</button>
+      <button class="ghost" id="removeMarkersBtn">Remove ALL Starting Balance Rows</button>
       <button class="danger" id="clearBtn">Start Fresh (Delete Everything)</button>
     </div>
 
@@ -119,9 +121,8 @@
     <div id="debug" class="small mono"></div>
 
     <p class="small">
-      <b>Reset options:</b><br/>
-      • <b>Remove ALL “Starting Balance” Rows</b> lets you fix a bad marker without deleting your transaction history.<br/>
-      • <b>Start Fresh</b> deletes all imported data and resets everything.
+      Tip: Your US Bank export already includes a <span class="mono">Transaction = Balance</span> row — that should work as the marker automatically.
+      If you ever want to “restart,” add a newer Balance/Starting Balance row with the new anchor amount/date.
     </p>
   </div>
 
@@ -136,9 +137,9 @@
         <thead>
           <tr>
             <th>Date</th>
+            <th>Transaction</th>
             <th>Name</th>
             <th>Memo</th>
-            <th>Type</th>
             <th>Category</th>
             <th class="mono">Amount</th>
           </tr>
@@ -243,27 +244,32 @@ function indexOfAny(headers, candidates) {
 }
 
 /* =========================
-   Marker detection: Name OR Memo contains "starting balance"
+   Marker detection
+   - US Bank exports a Transaction column with value "Balance"
+   - Also allow Name/Memo contains "starting balance"
 ========================= */
-function isStartingBalanceMarker(name, memo) {
+function isMarkerRow(txType, name, memo) {
+  const t = (txType || "").toLowerCase().trim();
   const n = (name || "").toLowerCase();
   const m = (memo || "").toLowerCase();
-  return n.includes("starting balance") || m.includes("starting balance");
+  return (t === "balance") || n.includes("starting balance") || m.includes("starting balance");
 }
 
 /* =========================
    Categorization (basic)
 ========================= */
-function categorize(type, name, memo, amount) {
-  if (isStartingBalanceMarker(name, memo)) return "Starting Balance";
+function categorize(txType, name, memo, amount) {
+  if (isMarkerRow(txType, name, memo)) return "Starting Balance";
 
   const n = (name || "").toUpperCase();
   const m = (memo || "").toUpperCase();
-  const t = (type || "").toUpperCase();
+  const t = (txType || "").toUpperCase();
 
-  if (n.includes("PAYMENT TO CREDIT CARD") || n.includes("CREDIT CARD PAYMENT") || n.includes("CREDIT CARD")) return "Transfer";
-  if (m.includes("PAYMENT TO CREDIT CARD") || m.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD")) return "Transfer";
+  // transfers (your file has: "MOBILE BANKING PAYMENT TO CREDIT CARD ####")
+  if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return "Transfer";
+  if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return "Transfer";
 
+  // common buckets (optional)
   if (n.includes("FIDELITY") || n.includes("FID BKG") || m.includes("FIDELITY") || m.includes("FID BKG")) return "Investing";
   if (n.includes("SPECTRUM") || m.includes("SPECTRUM")) return "Utilities";
   if (n.includes("US CELL") || n.includes("USCELL") || m.includes("USCELL")) return "Phone";
@@ -271,6 +277,7 @@ function categorize(type, name, memo, amount) {
   if (n.includes("AMAZON") || m.includes("AMAZON")) return "Shopping";
   if (n.includes("PICK N SAVE") || m.includes("PICK N SAVE")) return "Groceries";
 
+  // income guess
   if (t === "CREDIT" && (n.includes("PAYROLL") || m.includes("PAYROLL") || n.includes("DEPOSIT") || m.includes("DEPOSIT"))) return "Income";
 
   return amount < 0 ? "Discretionary" : "Other";
@@ -286,13 +293,13 @@ async function importCSVFile(file) {
 
   const header = rows[0].map(h => (h || "").trim());
   const iDate = indexOfAny(header, ["Date", "Posting Date", "Transaction Date"]);
-  const iType = indexOfAny(header, ["Transaction", "Type"]);
+  const iTx   = indexOfAny(header, ["Transaction", "Type"]);
   const iName = indexOfAny(header, ["Name", "Merchant", "Description"]);
   const iMemo = indexOfAny(header, ["Memo", "Details", "Note"]);
-  const iAmount = indexOfAny(header, ["Amount", "Transaction Amount"]);
+  const iAmt  = indexOfAny(header, ["Amount", "Transaction Amount"]);
 
-  if (iDate < 0 || iName < 0 || iAmount < 0) {
-    throw new Error("Missing required columns. Need at least: Date + Name/Merchant + Amount.");
+  if (iDate < 0 || iName < 0 || iAmt < 0) {
+    throw new Error("Missing required columns. Need at least: Date + Name + Amount.");
   }
 
   let added = 0, skipped = 0, failed = 0;
@@ -301,27 +308,27 @@ async function importCSVFile(file) {
   for (const r of rows.slice(1)) {
     try {
       const dateStr = (r[iDate] ?? "").trim();
-      const type = (iType >= 0 ? (r[iType] ?? "").trim() : "").toUpperCase();
-      const name = (r[iName] ?? "").trim();
-      const memo = (iMemo >= 0 ? (r[iMemo] ?? "").trim() : "");
-      const amount = parseMoney(r[iAmount]);
+      const txType  = (iTx >= 0 ? (r[iTx] ?? "").trim() : "");
+      const name    = (r[iName] ?? "").trim();
+      const memo    = (iMemo >= 0 ? (r[iMemo] ?? "").trim() : "");
+      const amount  = parseMoney(r[iAmt]);
 
       const d = parseUSDate(dateStr);
       if (!d || amount === null) { failed++; continue; }
 
       const month = yyyymmFromDate(d);
       const dateISO = d.toISOString().slice(0, 10);
-      const category = categorize(type, name, memo, amount);
 
-      // Dedup: date + name + memo + amount + type
-      const key = `${dateISO}|${name}|${memo}|${amount.toFixed(2)}|${type || ""}`;
-      const exists = allTransactions.some(t => t.key === key);
-      if (exists) { skipped++; continue; }
+      const category = categorize(txType, name, memo, amount);
 
-      const record = { key, dateISO, month, type, name, memo, amount, category };
+      // Dedup: date + txType + name + memo + amount
+      const key = `${dateISO}|${(txType||"").toUpperCase()}|${name}|${memo}|${amount.toFixed(2)}`;
+      if (allTransactions.some(t => t.key === key)) { skipped++; continue; }
+
+      const record = { key, dateISO, month, txType, name, memo, amount, category };
       allTransactions.push(record);
       added++;
-      if (debugRows.length < 5) debugRows.push(record);
+      if (debugRows.length < 6) debugRows.push(record);
     } catch {
       failed++;
     }
@@ -332,20 +339,7 @@ async function importCSVFile(file) {
 }
 
 /* =========================
-   Date helpers for running balance
-========================= */
-function monthEndISO(yyyymm) {
-  const [y, m] = yyyymm.split("-").map(n => parseInt(n, 10));
-  // JS: day 0 of next month = last day of this month
-  const last = new Date(y, m, 0);
-  const yyyy = last.getFullYear();
-  const mm = String(last.getMonth() + 1).padStart(2, "0");
-  const dd = String(last.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-/* =========================
-   Dashboard
+   UI
 ========================= */
 const els = {
   monthSelect: document.getElementById("monthSelect"),
@@ -376,92 +370,96 @@ function getSelectedMonth() {
   return els.monthSelect.value || yyyymmFromDate(new Date());
 }
 
+function maxDateISO(records) {
+  if (!records.length) return null;
+  return records.reduce((max, r) => (r.dateISO > max ? r.dateISO : max), records[0].dateISO);
+}
+
 function updateDashboard() {
   const sel = getSelectedMonth();
-  const endISO = monthEndISO(sel);
+  const monthTxAll = allTransactions.filter(t => t.month === sel);
 
-  const monthTx = allTransactions.filter(t => t.month === sel);
-  const markerTxAll = allTransactions
-    .filter(t => t.category === "Starting Balance")
-    .slice()
-    .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
+  // Month totals exclude marker rows
+  const monthTx = monthTxAll.filter(t => t.category !== "Starting Balance");
 
-  // IMPORTANT: running balance anchor = most recent marker row with date <= end of selected month
-  const anchorCandidates = markerTxAll.filter(t => t.dateISO <= endISO);
-  const anchor = anchorCandidates.length ? anchorCandidates[anchorCandidates.length - 1] : null;
+  const totalIncome = monthTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
+  const totalOutflows = monthTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  // Month totals (always computed)
-  const realMonthTx = monthTx.filter(t => t.category !== "Starting Balance");
-
-  const totalIncome = realMonthTx.filter(t => t.amount > 0).reduce((s,t)=>s+t.amount,0);
-  const totalOutflows = realMonthTx.filter(t => t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
-
-  const transferOut = realMonthTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
-  const transferIn  = realMonthTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
+  const transferOut = monthTx.filter(t => t.category === "Transfer" && t.amount < 0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const transferIn  = monthTx.filter(t => t.category === "Transfer" && t.amount > 0).reduce((s,t)=>s+t.amount,0);
   const transferNet = transferIn - transferOut;
 
-  const spending = realMonthTx
+  const spending = monthTx
     .filter(t => t.amount < 0)
     .filter(t => t.category !== "Transfer")
     .reduce((s,t)=>s+Math.abs(t.amount),0);
 
-  const netChangeMonth = realMonthTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
+  const netChangeMonth = monthTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
 
-  // Computed balance for end of selected month (carry-forward indefinitely)
-  let computedEndBal = null;
-  let balanceExplain = "";
+  // AS-OF DATE for balance = last imported transaction date in selected month (excluding marker rows)
+  const asOfISO = maxDateISO(monthTxAll.filter(t => t.category !== "Starting Balance")) || maxDateISO(monthTxAll) || null;
 
-  if (!anchor) {
-    computedEndBal = null;
-    balanceExplain = "No marker row found. Add a row with “starting balance” in Name or Memo.";
+  // Anchor = most recent marker row on or before asOfISO
+  const markers = allTransactions
+    .filter(t => t.category === "Starting Balance")
+    .slice()
+    .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
+
+  let anchor = null;
+  if (asOfISO) {
+    const candidates = markers.filter(m => m.dateISO <= asOfISO);
+    if (candidates.length) anchor = candidates[candidates.length - 1];
   } else {
-    // sum all REAL transactions from the day AFTER the anchor row through end of selected month
-    // (and also include same-day tx except the anchor row itself)
-    const anchorDate = anchor.dateISO;
-    const scopeTx = allTransactions
+    // if no tx in month, still allow anchor if exists, but we can't compute to an as-of date
+    anchor = markers.length ? markers[markers.length - 1] : null;
+  }
+
+  let runningBal = null;
+  let explain = "";
+
+  if (!asOfISO) {
+    runningBal = null;
+    explain = `No transactions imported for ${sel}. Import a CSV that includes this month.`;
+  } else if (!anchor) {
+    runningBal = null;
+    explain = `No starting balance marker found on/before ${asOfISO}. Add a row with Transaction=Balance (or Name/Memo contains "starting balance").`;
+  } else {
+    // sum all non-marker tx from anchor.dateISO through asOfISO
+    const scope = allTransactions
       .filter(t => t.category !== "Starting Balance")
-      .filter(t => t.dateISO >= anchorDate && t.dateISO <= endISO);
+      .filter(t => t.dateISO >= anchor.dateISO && t.dateISO <= asOfISO);
 
-    const netSinceAnchor = scopeTx.reduce((s,t)=>s + Number(t.amount || 0), 0);
-    computedEndBal = anchor.amount + netSinceAnchor;
+    const netSinceAnchor = scope.reduce((s,t)=>s + Number(t.amount || 0), 0);
+    runningBal = anchor.amount + netSinceAnchor;
 
-    balanceExplain = `Anchor: ${money(anchor.amount)} on ${anchor.dateISO} (row with “starting balance”).`;
-    // sanity: if anchor is after month start, warn
-    const monthStartISO = `${sel}-01`;
-    if (anchor.dateISO > monthStartISO) {
-      balanceExplain += ` WARNING: anchor date is after month start (${monthStartISO}), so earlier-month activity won’t be included unless it’s in your import history.`;
-    }
+    explain = `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → balance as of ${asOfISO}`;
   }
 
-  // Render top
-  els.topLine.textContent = money(spending);
-  els.topSub.textContent = `Spending this month (transfers excluded) • ${sel}`;
-  if (computedEndBal === null) {
-    els.balanceSub.innerHTML = `<span class="warn">Balance: unavailable</span> • ${balanceExplain}`;
-  } else {
-    els.balanceSub.textContent = `End balance (computed): ${money(computedEndBal)} • ${balanceExplain}`;
-  }
-
-  // Render boxes
+  // Render
   els.income.textContent = money(totalIncome);
   els.outflows.textContent = money(totalOutflows);
   els.spending.textContent = money(spending);
   els.transfers.textContent = money(transferNet);
   els.netChange.textContent = money(netChangeMonth);
 
-  if (computedEndBal === null) {
+  // Top KPI = spending (what most people want) + balance line
+  els.topLine.textContent = money(spending);
+  els.topSub.textContent = `Spending this month (transfers excluded) • ${sel}`;
+
+  if (runningBal === null) {
+    els.balanceSub.innerHTML = `<span class="warn">Running balance unavailable</span> • ${explain}`;
     els.balanceBox.textContent = "(missing)";
-    els.balanceHint.textContent = balanceExplain;
+    els.balanceHint.textContent = explain;
   } else {
-    els.balanceBox.textContent = money(computedEndBal);
-    els.balanceHint.textContent = balanceExplain;
+    els.balanceSub.textContent = `Running balance: ${money(runningBal)} • ${explain}`;
+    els.balanceBox.textContent = money(runningBal);
+    els.balanceHint.textContent = explain;
   }
 
   // Table
-  els.countPill.textContent = `${monthTx.length} tx`;
+  els.countPill.textContent = `${monthTxAll.length} rows`;
   els.tableBody.innerHTML = "";
-
-  monthTx
+  monthTxAll
     .slice()
     .sort((a,b) => a.dateISO < b.dateISO ? 1 : -1)
     .slice(0, 500)
@@ -470,9 +468,9 @@ function updateDashboard() {
       const amtClass = t.amount >= 0 ? "pos" : "neg";
       row.innerHTML = `
         <td class="mono">${t.dateISO}</td>
+        <td class="mono">${(t.txType || "")}</td>
         <td>${t.name}</td>
         <td>${t.memo || ""}</td>
-        <td class="mono">${t.type || ""}</td>
         <td><span class="pill">${t.category}</span></td>
         <td class="mono ${amtClass}">${money(t.amount)}</td>
       `;
@@ -483,20 +481,20 @@ function updateDashboard() {
 /* =========================
    Controls
 ========================= */
-function removeAllStartingBalanceRows() {
+function removeAllMarkers() {
   const before = allTransactions.length;
   allTransactions = allTransactions.filter(t => t.category !== "Starting Balance");
-  const after = allTransactions.length;
+  const removed = before - allTransactions.length;
   saveAll();
-  els.status.textContent = `Removed ${before - after} “Starting Balance” marker rows.`;
+  els.status.textContent = `Removed ${removed} starting-balance marker rows.`;
   updateDashboard();
 }
 
 function clearAll() {
-  if (!confirm("Start fresh? This deletes ALL imported data and resets everything.")) return;
+  if (!confirm("Start fresh? This deletes ALL imported data.")) return;
   allTransactions = [];
   localStorage.clear();
-  els.status.textContent = "Deleted everything. Start by importing a new CSV.";
+  els.status.textContent = "Deleted everything. Import a new CSV to start.";
   els.debug.textContent = "";
   els.monthSelect.value = yyyymmFromDate(new Date());
   updateDashboard();
@@ -506,12 +504,10 @@ function clearAll() {
    Wire UI
 ========================= */
 els.monthSelect.addEventListener("change", updateDashboard);
-
 els.removeMarkersBtn.addEventListener("click", () => {
-  if (!confirm("Remove ALL marker rows (anything with “starting balance” in Name or Memo)?")) return;
-  removeAllStartingBalanceRows();
+  if (!confirm("Remove ALL Starting Balance marker rows?")) return;
+  removeAllMarkers();
 });
-
 els.clearBtn.addEventListener("click", clearAll);
 
 els.importBtn.addEventListener("click", async () => {
@@ -529,7 +525,7 @@ els.importBtn.addEventListener("click", async () => {
       els.debug.textContent =
         "Parsed sample rows:\n" +
         res.debugRows.map(r =>
-          `${r.dateISO} | name="${r.name}" | memo="${r.memo || ""}" | amt=${r.amount} | cat=${r.category}`
+          `${r.dateISO} | ${r.txType || ""} | name="${r.name}" | memo="${r.memo || ""}" | amt=${r.amount} | cat=${r.category}`
         ).join("\n");
     } else {
       els.debug.textContent = "No rows parsed. If this happens, paste your CSV header row here and I’ll map it.";
