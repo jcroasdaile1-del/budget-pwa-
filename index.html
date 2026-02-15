@@ -314,7 +314,7 @@
 
         <div class="miniGrid2" style="margin-top:12px;">
           <div>
-            <canvas id="fidPieCanvas" width="1200" height="520"></canvas>
+            <canvas id="fidPieCanvas" width="1200" height="520" style="width:100%; height:auto; display:block;"></canvas>
             <div id="fidPieSummary" class="small"></div>
           </div>
 
@@ -2392,6 +2392,77 @@ function smartShortDesc(desc) {
   const out = (cut > 20 ? s.slice(0, cut) : s.slice(0, maxLen)).trim();
   return out + "…";
 }
+
+function drawBigPie(canvas, data, title) {
+  // Draw a large centered pie (no legend on canvas). Legend should be rendered in HTML.
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width || 800;
+  const H = canvas.height || 400;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f1726";
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
+  ctx.fillStyle = "#9fb0d0";
+  ctx.font = "700 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText(title || "Allocation", 18, 28);
+
+  const cx = Math.round(W * 0.5);
+  const cy = Math.round(H * 0.58); // slightly lower to give title room
+  const r = Math.round(Math.min(W, H) * 0.42); // BIGGER than old 0.30
+
+  const total = (data || []).reduce((s, d) => s + Number(d.value || 0), 0);
+  if (!total) {
+    ctx.fillStyle = "#9fb0d0";
+    ctx.font = "600 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+    ctx.fillText("No allocation data.", 18, 54);
+    return;
+  }
+
+  // Simple deterministic palette (derived from existing legend colors behavior is elsewhere; we keep it lightweight)
+  const palette = ["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
+  let start = -Math.PI / 2;
+
+  for (let i = 0; i < data.length; i++) {
+    const d = data[i];
+    const v = Number(d.value || 0);
+    const angle = (v / total) * Math.PI * 2;
+    const end = start + angle;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, end);
+    ctx.closePath();
+    ctx.fillStyle = palette[i % palette.length];
+    ctx.fill();
+
+    // subtle border
+    ctx.strokeStyle = "#0b1220";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    start = end;
+  }
+
+  // center donut to modernize
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.round(r * 0.55), 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.fillStyle = "#0f1726";
+  ctx.fill();
+
+  // center label (total)
+  ctx.fillStyle = "#e8eefc";
+  ctx.font = "800 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("Total", cx, cy - 8);
+  ctx.fillStyle = "#9fb0d0";
+  ctx.font = "700 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText(money(total), cx, cy + 14);
+  ctx.textAlign = "left";
+}
 }
 
 function renderFidelitySnapshotUI() {
@@ -2461,10 +2532,21 @@ function renderFidelitySnapshotUI() {
   const otherSum = alloc.slice(10).reduce((s,x)=>s+x.value,0);
   const pieData = otherSum > 0 ? top.concat([{ label:"Other", value: otherSum }]) : top;
 
-  drawPieWithLegend(pieCanvas, pieData, "Fidelity Allocation (Latest Snapshot)", 10);
-  if (pieSummary) {
+  drawBigPie(pieCanvas, pieData, "Fidelity Allocation (Latest Snapshot)");
+  
+if (pieSummary) {
     pieSummary.textContent = `Top holding: ${top[0]?.label || "—"} (${money(top[0]?.value || 0)})`;
   }
+  const legendEl = document.getElementById("fidPieLegend");
+  if (legendEl) {
+    const totalAlloc = pieData.reduce((s,x)=>s+Number(x.value||0),0) || 0;
+    const lines = pieData.map(x => {
+      const pct = totalAlloc ? (Number(x.value||0)/totalAlloc)*100 : 0;
+      return `${escapeHtml(String(x.label||""))}: ${money(Number(x.value||0))} (${pct.toFixed(1)}%)`;
+    }).join("<br>");
+    legendEl.innerHTML = lines || "";
+  }
+
 
   // Holdings table
   const rows = positions
