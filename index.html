@@ -45,7 +45,16 @@
     canvas { max-width:100%; background:#0f1726; border:1px solid #24314f; border-radius:12px; }
     .inline { display:flex; gap:10px; flex-wrap:wrap; }
     .inline > div { flex: 1; min-width: 220px; }
-  </style>
+  
+  /* ===== Fidelity Phase 2 (additive) ===== */
+  .bigKpi2 { background:#0f1726; border:1px solid #24314f; border-radius:12px; padding:16px; text-align:center; }
+  .bigKpi2 .t { color:#9fb0d0; font-size:13px; }
+  .bigKpi2 .v { font-size:40px; font-weight:950; margin-top:8px; letter-spacing:-.6px; }
+  .bigKpi2 .s { font-size:12px; color:#9fb0d0; margin-top:6px; }
+  .miniGrid2 { display:grid; grid-template-columns: 1fr; gap:10px; }
+  @media(min-width:820px){ .miniGrid2 { grid-template-columns: 1fr 1fr; } }
+
+</style>
 </head>
 
 <body>
@@ -256,6 +265,62 @@
     <div class="kpiBox">
       <div class="t">Monthly Contributions (All-Time)</div>
       <div id="invMonthly" class="small"></div>
+      <hr style="border:none; border-top:1px solid #24314f; margin:14px 0;">
+
+      <details open style="margin-top:6px;">
+        <summary>Portfolio Snapshot (Holdings)</summary>
+
+        <div class="small" style="margin-top:8px;">
+          Import your Fidelity <span class="mono">Portfolio Positions</span> CSV to track holdings, allocation, and unrealized gains/losses.
+          Cash (<span class="mono">FCASH**</span>) is included.
+        </div>
+
+        <div class="kpiBox" style="margin-top:10px;">
+          <div class="row" style="align-items:flex-end;">
+            <div style="flex:1; min-width:260px;">
+              <label for="fidelityPositionsFile">Fidelity Positions CSV</label>
+              <input type="file" id="fidelityPositionsFile" accept=".csv,text/csv" />
+              <div class="hint" style="margin-top:6px;">Example filename: <span class="mono">Portfolio_Positions_Feb-15-2026.csv</span></div>
+            </div>
+
+            <div style="flex:1; min-width:220px;">
+              <label for="fidelityAsOfDate">As-of date (optional)</label>
+              <input id="fidelityAsOfDate" type="date" />
+              <div class="hint" style="margin-top:6px;">If blank, the app will try to detect from filename.</div>
+            </div>
+
+            <div style="min-width:220px;">
+              <button class="primary" id="importFidelityPositionsBtn" style="width:100%;">Import Holdings Snapshot</button>
+              <div id="fidelityImportStatus" class="small" style="margin-top:8px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bigKpi2" style="margin-top:12px;">
+          <div class="t">Portfolio Value (Latest Snapshot)</div>
+          <div id="fidPortfolioValue" class="v">$0.00</div>
+          <div id="fidPortfolioSub" class="s">No snapshots yet.</div>
+        </div>
+
+        <div class="miniGrid2" style="margin-top:12px;">
+          <div>
+            <canvas id="fidPieCanvas" width="900" height="360"></canvas>
+            <div id="fidPieSummary" class="small"></div>
+          </div>
+
+          <div class="kpiBox" style="overflow:auto;">
+            <div class="t">Holdings (Latest Snapshot)</div>
+            <div id="fidHoldingsTable" class="small" style="margin-top:8px;"></div>
+          </div>
+        </div>
+
+        <details style="margin-top:12px;">
+          <summary>Snapshot History <span id="fidSnapCount" class="pill">0</span></summary>
+          <div class="small hint" style="margin-top:6px;">Snapshots are saved in your browser (localStorage). Delete old ones to keep things tidy.</div>
+          <div id="fidSnapHistory" style="overflow:auto; margin-top:10px;"></div>
+        </details>
+      </details>
+
     </div>
   </div>
 </div>
@@ -2155,6 +2220,361 @@ els.clearCardsTrashBtn.addEventListener("click", () => {
   renderCardsTrash();
   renderRulesTrash();
   updateDashboard();
+
+/* ===================== Fidelity Phase 2 logic (holdings snapshots) ===================== */
+function ensureFidelitySnapshotsShape() {
+  let snaps = [];
+  try { snaps = JSON.parse(localStorage.getItem("fidelitySnapshots") || "[]"); } catch { snaps = []; }
+  if (!Array.isArray(snaps)) snaps = [];
+  return snaps;
+}
+
+function saveFidelitySnapshots(snaps) {
+  localStorage.setItem("fidelitySnapshots", JSON.stringify(snaps || []));
+}
+
+function makeSnapId() {
+  return "fs-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
+function parsePercent(value) {
+  const s = String(value || "").trim();
+  if (!s) return null;
+  const n = Number(s.replace(/%/g, "").replace(/,/g, "").trim());
+  return Number.isNaN(n) ? null : n;
+}
+
+function parseMonthFromAbbrev(m) {
+  const map = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+  return map[String(m||"").toLowerCase().slice(0,3)] || null;
+}
+
+function inferAsOfFromFilename(name) {
+  const s = String(name || "");
+  // Match Feb-15-2026 or Feb_15_2026 or Feb 15 2026
+  const m = s.match(/([A-Za-z]{3})[-_\s](\d{1,2})[-_\s](\d{4})/);
+  if (!m) return null;
+  const mm = parseMonthFromAbbrev(m[1]);
+  const dd = parseInt(m[2], 10);
+  const yyyy = parseInt(m[3], 10);
+  if (!mm || !dd || !yyyy) return null;
+  const iso = `${yyyy}-${String(mm).padStart(2,"0")}-${String(dd).padStart(2,"0")}`;
+  return iso;
+}
+
+function parseFidelityPositionsCSV(text) {
+  // Uses existing parseCSV/parseMoney helpers from the app.
+  const rows = parseCSV(text);
+  if (!rows.length) throw new Error("CSV looks empty.");
+
+  // Find header row by required columns
+  let headerIdx = -1;
+  for (let i=0; i<Math.min(rows.length, 25); i++) {
+    const r = rows[i] || [];
+    const joined = r.map(x=>String(x||"").trim().toLowerCase()).join("|");
+    if (joined.includes("account number") && joined.includes("symbol") && joined.includes("current value")) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0) headerIdx = 0;
+
+  const header = (rows[headerIdx] || []).map(h => (h || "").trim());
+  const iAcctNum = indexOfAny(header, ["Account Number"]);
+  const iAcctName= indexOfAny(header, ["Account Name"]);
+  const iSymbol  = indexOfAny(header, ["Symbol"]);
+  const iDesc    = indexOfAny(header, ["Description"]);
+  const iQty     = indexOfAny(header, ["Quantity"]);
+  const iLast    = indexOfAny(header, ["Last Price"]);
+  const iValue   = indexOfAny(header, ["Current Value"]);
+  const iPct     = indexOfAny(header, ["Percent Of Account"]);
+  const iCostTot = indexOfAny(header, ["Cost Basis Total"]);
+  const iAvgCost = indexOfAny(header, ["Average Cost Basis"]);
+  const iGLDol   = indexOfAny(header, ["Total Gain/Loss Dollar"]);
+  const iGLPct   = indexOfAny(header, ["Total Gain/Loss Percent"]);
+  const iType    = indexOfAny(header, ["Type"]);
+
+  if (iSymbol < 0 || iValue < 0) throw new Error("Fidelity CSV missing required columns (Symbol, Current Value).");
+
+  const positions = [];
+  let acctNumber = null;
+  let acctName = null;
+
+  for (const r of rows.slice(headerIdx+1)) {
+    const symbolRaw = (r[iSymbol] ?? "").trim();
+    const descRaw = (iDesc >= 0 ? (r[iDesc] ?? "").trim() : "");
+
+    // Stop at footer/disclaimer region
+    const maybeDisclaimer = (symbolRaw + " " + descRaw).toLowerCase();
+    if (maybeDisclaimer.includes("the data and information in this spreadsheet")) break;
+    if (maybeDisclaimer.includes("brokerage services are provided by fidelity")) break;
+    if (maybeDisclaimer.includes("date downloaded")) break;
+
+    // Skip fully empty rows
+    const anyContent = r.some(cell => String(cell || "").trim() !== "");
+    if (!anyContent) continue;
+
+    // Skip pending activity row
+    if (symbolRaw.toLowerCase() === "pending activity") continue;
+
+    // Record account info from the first real row
+    if (!acctNumber && iAcctNum >= 0) acctNumber = (r[iAcctNum] ?? "").trim() || null;
+    if (!acctName && iAcctName >= 0) acctName = (r[iAcctName] ?? "").trim() || null;
+
+    // Some lines might have blank symbol but text in desc; ignore those
+    if (!symbolRaw) continue;
+
+    const qty = (iQty >= 0) ? Number(String(r[iQty] ?? "").replace(/,/g,"").trim() || "0") : null;
+    const lastPrice = (iLast >= 0) ? parseMoney(r[iLast]) : null;
+    const marketValue = parseMoney(r[iValue]);
+
+    // Skip rows with no value
+    if (marketValue === null) continue;
+
+    const pct = (iPct >= 0) ? parsePercent(r[iPct]) : null;
+    const costTotal = (iCostTot >= 0) ? parseMoney(r[iCostTot]) : null;
+    const avgCost = (iAvgCost >= 0) ? parseMoney(r[iAvgCost]) : null;
+    const glDol = (iGLDol >= 0) ? parseMoney(r[iGLDol]) : null;
+    const glPct = (iGLPct >= 0) ? parsePercent(r[iGLPct]) : null;
+    const type = (iType >= 0) ? (r[iType] ?? "").trim() : "";
+
+    positions.push({
+      symbol: symbolRaw,
+      description: descRaw,
+      shares: Number.isFinite(qty) ? qty : null,
+      lastPrice,
+      marketValue,
+      percentOfAccount: pct,
+      costBasisTotal: costTotal,
+      averageCostBasis: avgCost,
+      totalGainLossDollar: glDol,
+      totalGainLossPercent: glPct,
+      type
+    });
+  }
+
+  const totalValue = positions.reduce((s,p)=>s + Number(p.marketValue || 0), 0);
+  return { acctNumber, acctName, totalValue, positions };
+}
+
+function formatISOForHuman(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString();
+  } catch {
+    return iso;
+  }
+}
+
+function renderFidelitySnapshotUI() {
+  const snaps = ensureFidelitySnapshotsShape();
+  const countEl = document.getElementById("fidSnapCount");
+  if (countEl) countEl.textContent = String(snaps.length);
+
+  const valueEl = document.getElementById("fidPortfolioValue");
+  const subEl = document.getElementById("fidPortfolioSub");
+  const pieCanvas = document.getElementById("fidPieCanvas");
+  const pieSummary = document.getElementById("fidPieSummary");
+  const tableWrap = document.getElementById("fidHoldingsTable");
+  const historyWrap = document.getElementById("fidSnapHistory");
+
+  if (!valueEl || !subEl || !pieCanvas || !tableWrap || !historyWrap) return;
+
+  if (!snaps.length) {
+    valueEl.textContent = money(0);
+    valueEl.classList.remove("pos","neg");
+    subEl.textContent = "No snapshots yet.";
+    tableWrap.innerHTML = `<div class="small hint">Import a Fidelity positions CSV to populate holdings.</div>`;
+    historyWrap.innerHTML = `<div class="small">No snapshots yet.</div>`;
+    if (pieSummary) pieSummary.textContent = "";
+    const ctx = pieCanvas.getContext("2d");
+    ctx.clearRect(0,0,pieCanvas.width,pieCanvas.height);
+    ctx.fillStyle = "#0f1726";
+    ctx.fillRect(0,0,pieCanvas.width,pieCanvas.height);
+    ctx.fillStyle = "#9fb0d0";
+    ctx.font = "600 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+    ctx.fillText("No snapshot data yet.", 18, 30);
+    return;
+  }
+
+  // Sort by asOfDateISO (fallback importedAtISO)
+  const sorted = snaps.slice().sort((a,b)=>{
+    const ad = (a.asOfDateISO || "").localeCompare(b.asOfDateISO || "");
+    if (ad !== 0) return ad;
+    return (a.importedAtISO || "").localeCompare(b.importedAtISO || "");
+  });
+  const latest = sorted[sorted.length - 1];
+  const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : null;
+
+  const latestVal = Number(latest.totalValue || 0);
+  valueEl.textContent = money(latestVal);
+  valueEl.classList.remove("pos","neg");
+
+  let sub = `As of ${formatISOForHuman(latest.asOfDateISO)} · ${latest.positions?.length || 0} positions`;
+  if (prev) {
+    const prevVal = Number(prev.totalValue || 0);
+    const delta = latestVal - prevVal;
+    const pct = prevVal ? (delta / prevVal) * 100 : null;
+    const deltaText = `${moneySigned(delta)}${(pct !== null ? ` (${(pct>=0?"+":"")}${pct.toFixed(2)}%)` : "")}`;
+    sub += ` · Change vs prior snapshot: ${deltaText}`;
+    if (subEl) subEl.classList.remove("pos","neg");
+    if (delta > 0) subEl.classList.add("pos");
+    else if (delta < 0) subEl.classList.add("neg");
+  } else {
+    if (subEl) subEl.classList.remove("pos","neg");
+  }
+  subEl.textContent = sub;
+
+  // Build allocation data from marketValue (top 10 + Other)
+  const positions = (latest.positions || []).slice().filter(p => Number(p.marketValue || 0) !== 0);
+  const alloc = positions.map(p => ({ label: p.symbol || "Unknown", value: Math.abs(Number(p.marketValue || 0)) }));
+  alloc.sort((a,b)=>b.value-a.value);
+  const top = alloc.slice(0,10);
+  const otherSum = alloc.slice(10).reduce((s,x)=>s+x.value,0);
+  const pieData = otherSum > 0 ? top.concat([{ label:"Other", value: otherSum }]) : top;
+
+  drawPieWithLegend(pieCanvas, pieData, "Fidelity Allocation (Latest Snapshot)", 10);
+  if (pieSummary) {
+    pieSummary.textContent = `Top holding: ${top[0]?.label || "—"} (${money(top[0]?.value || 0)})`;
+  }
+
+  // Holdings table
+  const rows = positions
+    .slice()
+    .sort((a,b)=>Number(b.marketValue||0) - Number(a.marketValue||0))
+    .map(p => {
+      const pct = latestVal ? (Number(p.marketValue||0) / latestVal) * 100 : null;
+      const glDol = (p.totalGainLossDollar === null || p.totalGainLossDollar === undefined) ? null : Number(p.totalGainLossDollar);
+      const glPct = (p.totalGainLossPercent === null || p.totalGainLossPercent === undefined) ? null : Number(p.totalGainLossPercent);
+      const glClass = (glDol !== null && glDol < 0) ? "neg" : (glDol !== null && glDol > 0 ? "pos" : "");
+      return `
+        <tr>
+          <td class="mono">${escapeHtml(p.symbol || "")}</td>
+          <td>${escapeHtml(p.description || "")}</td>
+          <td class="mono right">${(p.shares === null || p.shares === undefined) ? "—" : escapeHtml(String(p.shares))}</td>
+          <td class="mono right">${money(p.marketValue || 0)}</td>
+          <td class="mono right">${pct === null ? "—" : pct.toFixed(2) + "%"}</td>
+          <td class="mono right">${p.costBasisTotal === null ? "—" : money(p.costBasisTotal)}</td>
+          <td class="mono right ${glClass}">${glDol === null ? "—" : moneySigned(glDol)}${(glPct === null ? "" : ` (${(glPct>=0?"+":"")}${glPct.toFixed(2)}%)`)}</td>
+        </tr>
+      `;
+    }).join("");
+
+  tableWrap.innerHTML = `
+    <div style="overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Description</th>
+            <th class="right">Shares</th>
+            <th class="right">Value</th>
+            <th class="right">%</th>
+            <th class="right">Cost Basis</th>
+            <th class="right">Total G/L</th>
+          </tr>
+        </thead>
+        <tbody>${rows || ""}</tbody>
+      </table>
+    </div>
+  `;
+
+  // History table
+  const histRows = sorted.slice().reverse().slice(0,12).map(s => {
+    const v = Number(s.totalValue || 0);
+    const label = formatISOForHuman(s.asOfDateISO) || formatDateTime(s.importedAtISO);
+    const id = s.snapshotId;
+    return `
+      <tr>
+        <td class="mono">${escapeHtml(label)}</td>
+        <td class="mono right">${money(v)}</td>
+        <td class="mono">${escapeHtml(s.sourceFileName || "")}</td>
+        <td class="right"><button class="danger" data-del-snap="${escapeHtml(id)}">Delete</button></td>
+      </tr>
+    `;
+  }).join("");
+
+  historyWrap.innerHTML = `
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>As of</th><th class="right">Value</th><th>Source</th><th class="right"></th></tr></thead>
+        <tbody>${histRows || ""}</tbody>
+      </table>
+    </div>
+  `;
+
+  historyWrap.querySelectorAll("button[data-del-snap]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-del-snap");
+      if (!confirm("Delete this Fidelity snapshot? This can't be undone.")) return;
+      const snapsNow = ensureFidelitySnapshotsShape().filter(x => x.snapshotId !== id);
+      saveFidelitySnapshots(snapsNow);
+      renderFidelitySnapshotUI();
+    });
+  });
+}
+
+function wireFidelityImport() {
+  const fileInput = document.getElementById("fidelityPositionsFile");
+  const dateInput = document.getElementById("fidelityAsOfDate");
+  const btn = document.getElementById("importFidelityPositionsBtn");
+  const statusEl = document.getElementById("fidelityImportStatus");
+
+  if (!fileInput || !btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) { if(statusEl) statusEl.textContent = "Choose a Fidelity CSV first."; return; }
+
+      const asOf = (dateInput && dateInput.value) ? dateInput.value : (inferAsOfFromFilename(file.name) || new Date().toISOString().slice(0,10));
+      const text = await file.text();
+      const parsed = parseFidelityPositionsCSV(text);
+
+      const snapshot = {
+        snapshotId: makeSnapId(),
+        asOfDateISO: asOf,
+        importedAtISO: new Date().toISOString(),
+        sourceFileName: file.name,
+        accountNumber: parsed.acctNumber || null,
+        accountName: parsed.acctName || null,
+        totalValue: parsed.totalValue,
+        positions: parsed.positions
+      };
+
+      // Dedupe: same asOfDateISO + same totalValue + same positions length
+      let snaps = ensureFidelitySnapshotsShape();
+      const dupe = snaps.some(s =>
+        String(s.asOfDateISO||"") === String(snapshot.asOfDateISO||"") &&
+        Math.abs(Number(s.totalValue||0) - Number(snapshot.totalValue||0)) < 0.01 &&
+        Number((s.positions||[]).length) === Number((snapshot.positions||[]).length)
+      );
+      if (dupe) {
+        if(statusEl) statusEl.textContent = `Snapshot for ${asOf} looks like a duplicate. Not imported.`;
+        renderFidelitySnapshotUI();
+        return;
+      }
+
+      snaps.push(snapshot);
+      saveFidelitySnapshots(snaps);
+
+      if(statusEl) statusEl.textContent = `Imported snapshot: ${asOf} · ${snapshot.positions.length} positions · Total ${money(snapshot.totalValue)}`;
+
+      renderFidelitySnapshotUI();
+    } catch (e) {
+      if(statusEl) statusEl.textContent = "Import failed: " + (e && e.message ? e.message : String(e));
+    }
+  });
+}
+
+/* Ensure Phase 2 UI is wired after DOM is ready */
+document.addEventListener("DOMContentLoaded", () => {
+  wireFidelityImport();
+  renderFidelitySnapshotUI();
+});
+/* ===================================================================================== */
+
 })();
 </script>
 
@@ -2277,7 +2697,9 @@ if(typeof window.updateDashboard==="function"){
     const scope = getScope();
     const scopeTx = filterToScope(allTransactions, scope);
     updateInvestingModule(scopeTx, allTransactions);
-  };
+    // Phase 2: holdings snapshots UI
+    try { renderFidelitySnapshotUI(); } catch {}
+};
 }
 
 })();
