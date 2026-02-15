@@ -2113,5 +2113,171 @@ els.clearCardsTrashBtn.addEventListener("click", () => {
 })();
 </script>
 
+
+<!-- =========================================================
+     INVESTMENTS (FIDELITY) MODULE – PHASE 1 (ADDITIVE ONLY)
+========================================================= -->
+<div class="card">
+  <h3 style="margin:0 0 12px;">Investments (Fidelity)</h3>
+
+  <div class="bigKpi">
+    <div class="t">Total Invested (All-Time)</div>
+    <div id="invLifetime" class="v">$0.00</div>
+  </div>
+
+  <div class="grid3" style="margin-top:14px;">
+    <div class="kpiBox">
+      <div class="t">Contributions (Scope)</div>
+      <div id="invContrib" class="v">$0.00</div>
+    </div>
+
+    <div class="kpiBox">
+      <div class="t">Withdrawals (Scope)</div>
+      <div id="invWithdraw" class="v">$0.00</div>
+    </div>
+
+    <div class="kpiBox">
+      <div class="t">Net Investing (Scope)</div>
+      <div id="invNet" class="v">$0.00</div>
+    </div>
+
+    <div class="kpiBox">
+      <div class="t">Last Contribution</div>
+      <div id="invLast" class="v">—</div>
+    </div>
+
+    <div class="kpiBox">
+      <div class="t">Contribution Pattern</div>
+      <div id="invPattern" class="v">—</div>
+    </div>
+
+    <div class="kpiBox">
+      <div class="t">Monthly Contributions (All-Time)</div>
+      <div id="invMonthly" class="small"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+
+function detectPattern(dates){
+  if(dates.length<3) return "Not enough data";
+  const intervals=[];
+  for(let i=1;i<dates.length;i++){
+    const d1=new Date(dates[i-1]);
+    const d2=new Date(dates[i]);
+    intervals.push(Math.round((d2-d1)/(1000*60*60*24)));
+  }
+  const median=arr=>{
+    const a=arr.slice().sort((x,y)=>x-y);
+    const m=Math.floor(a.length/2);
+    return a.length%2?a[m]:(a[m-1]+a[m])/2;
+  };
+  const med=median(intervals);
+  if(med>=13 && med<=15) return "Biweekly pattern";
+  if(med>=27 && med<=33) return "Monthly pattern";
+  return "Irregular pattern";
+}
+
+function updateInvestingModule(scopeTx, allTx){
+
+  const invAll = allTx.filter(t =>
+    t.accountId==="checking" &&
+    t.category==="Investing"
+  );
+
+  const invScope = scopeTx.filter(t =>
+    t.accountId==="checking" &&
+    t.category==="Investing"
+  );
+
+  const lifetimeContrib = invAll.filter(t=>t.amount<0)
+    .reduce((s,t)=>s+Math.abs(t.amount),0);
+
+  const lifetimeWithdraw = invAll.filter(t=>t.amount>0)
+    .reduce((s,t)=>s+t.amount,0);
+
+  const lifetimeNet = lifetimeContrib - lifetimeWithdraw;
+
+  const lifetimeEl = document.getElementById("invLifetime");
+  if(lifetimeEl){
+    lifetimeEl.textContent = lifetimeNet.toLocaleString("en-US",{style:"currency",currency:"USD"});
+    lifetimeEl.className = lifetimeNet>=0?"v pos":"v neg";
+  }
+
+  const scopeContrib = invScope.filter(t=>t.amount<0)
+    .reduce((s,t)=>s+Math.abs(t.amount),0);
+
+  const scopeWithdraw = invScope.filter(t=>t.amount>0)
+    .reduce((s,t)=>s+t.amount,0);
+
+  const scopeNet = scopeContrib - scopeWithdraw;
+
+  const setMoney = (id,val,signed=false)=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    if(signed){
+      const prefix = val>0?"+":"";
+      el.textContent = prefix + val.toLocaleString("en-US",{style:"currency",currency:"USD"});
+      el.className = val>=0?"v pos":"v neg";
+    }else{
+      el.textContent = val.toLocaleString("en-US",{style:"currency",currency:"USD"});
+    }
+  };
+
+  setMoney("invContrib",scopeContrib);
+  setMoney("invWithdraw",scopeWithdraw);
+  setMoney("invNet",scopeNet,true);
+
+  const last = invAll.filter(t=>t.amount<0)
+    .sort((a,b)=>b.dateISO.localeCompare(a.dateISO))[0];
+
+  const lastEl=document.getElementById("invLast");
+  if(lastEl){
+    lastEl.textContent = last
+      ? Math.abs(last.amount).toLocaleString("en-US",{style:"currency",currency:"USD"}) + " on " + last.dateISO
+      : "—";
+  }
+
+  const contribDates = invAll.filter(t=>t.amount<0)
+    .map(t=>t.dateISO)
+    .sort();
+
+  const patEl=document.getElementById("invPattern");
+  if(patEl){
+    patEl.textContent = detectPattern(contribDates);
+  }
+
+  const monthly={};
+  invAll.filter(t=>t.amount<0).forEach(t=>{
+    monthly[t.month]=(monthly[t.month]||0)+Math.abs(t.amount);
+  });
+
+  const sortedMonths=Object.keys(monthly).sort().reverse();
+  const list=sortedMonths.map(m=>m+": "+
+    monthly[m].toLocaleString("en-US",{style:"currency",currency:"USD"})
+  ).join("<br>");
+
+  const monthlyEl=document.getElementById("invMonthly");
+  if(monthlyEl){
+    monthlyEl.innerHTML = list || "No data";
+  }
+}
+
+// Wrap existing updateDashboard WITHOUT modifying original code
+if(typeof window.updateDashboard==="function"){
+  const originalUpdateDashboard=window.updateDashboard;
+  window.updateDashboard=function(){
+    originalUpdateDashboard.apply(this,arguments);
+    const scope = getScope();
+    const scopeTx = filterToScope(allTransactions, scope);
+    updateInvestingModule(scopeTx, allTransactions);
+  };
+}
+
+})();
+</script>
+
 </body>
 </html>
