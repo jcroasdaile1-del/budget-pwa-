@@ -152,6 +152,12 @@
         <div id="balanceBox" class="v">$0.00</div>
         <div id="balanceHint" class="hint"></div>
       </div>
+
+      <div class="kpiBox">
+        <div class="t">Checking Account Balance</div>
+        <div id="checkingBalanceBox" class="v">$0.00</div>
+        <div id="checkingBalanceHint" class="hint"></div>
+      </div>
     </div>
   </div>
 
@@ -186,6 +192,25 @@
           <button class="ghost" id="addCardBtn">Add Card Profile</button>
           <button class="primary" id="saveCardSettingsBtn">Save Card Settings</button>
         </div>
+
+        <div class="btnRow" style="margin-top:10px;">
+          <button class="ghost" id="selectAllCardsBtn">Select All</button>
+          <label class="small" style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="trashCardsAlsoTxChk" />
+            Also move selected cards&#39; transactions to Trash
+          </label>
+          <button class="danger" id="trashSelectedCardsBtn" disabled>Move Selected to Trash</button>
+        </div>
+
+        <details style="margin-top:12px;">
+          <summary>Credit Cards Trash <span id="cardsTrashCount" class="pill">0</span></summary>
+          <div class="small hint" style="margin-top:6px;">Deleted card profiles (and optionally their transactions) stay here until you restore them or clear trash.</div>
+          <div id="cardsTrashWrap" style="overflow:auto; margin-top:10px;"></div>
+          <div class="btnRow" style="margin-top:10px;">
+            <button class="danger" id="clearCardsTrashBtn" disabled>Clear Trash</button>
+          </div>
+        </details>
+
         <div id="cardSettingsStatus" class="small"></div>
       </details>
     </details>
@@ -259,10 +284,21 @@
       <div class="btnRow" style="margin-top:10px;">
         <button class="primary" id="addRuleBtn">Add Rule</button>
         <button class="ghost" id="reapplyRulesBtn">Reapply Rules to All Transactions</button>
-        <button class="danger" id="clearRulesBtn">Delete All Rules</button>
+        <button class="ghost" id="selectAllRulesBtn">Select All</button>
+        <button class="danger" id="trashSelectedRulesBtn" disabled>Move Selected to Trash</button>
+        <button class="danger" id="clearRulesBtn">Move All Rules to Trash</button>
       </div>
 
       <div id="rulesTableWrap" style="overflow:auto; margin-top:12px;"></div>
+
+      <details style="margin-top:12px;">
+        <summary>Rules Trash <span id="rulesTrashCount" class="pill">0</span></summary>
+        <div class="small hint" style="margin-top:6px;">Deleted rules stay here (even after refresh) until you restore them or clear trash.</div>
+        <div id="rulesTrashWrap" style="overflow:auto; margin-top:10px;"></div>
+        <div class="btnRow" style="margin-top:10px;">
+          <button class="danger" id="clearRulesTrashBtn" disabled>Clear Trash</button>
+        </div>
+      </details>
     </details>
   </div>
 
@@ -329,6 +365,7 @@ let allTransactions = JSON.parse(localStorage.getItem("transactions") || "[]");
 let userRules = JSON.parse(localStorage.getItem("userRules") || "[]");
 let importMeta = JSON.parse(localStorage.getItem("importMeta") || "[]");
 let cardProfiles = JSON.parse(localStorage.getItem("cardProfiles") || "[]");
+let trashStore = JSON.parse(localStorage.getItem("trashStore") || "{\"rules\":[],\"cards\":[],\"cardTx\":[]}");
 
 // Seed defaults (Jim/Mara) if not present
 function ensureDefaultCards() {
@@ -343,6 +380,130 @@ function saveAll() {
   localStorage.setItem("userRules", JSON.stringify(userRules));
   localStorage.setItem("importMeta", JSON.stringify(importMeta));
   localStorage.setItem("cardProfiles", JSON.stringify(cardProfiles));
+  localStorage.setItem("trashStore", JSON.stringify(trashStore));
+
+/* =========================================================
+   Trash helpers (rules + card profiles + optional card transactions)
+========================================================= */
+function makeTrashId(prefix="t") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function ensureTrashStoreShape() {
+  if (!trashStore || typeof trashStore !== "object") trashStore = { rules: [], cards: [], cardTx: [] };
+  if (!Array.isArray(trashStore.rules)) trashStore.rules = [];
+  if (!Array.isArray(trashStore.cards)) trashStore.cards = [];
+  if (!Array.isArray(trashStore.cardTx)) trashStore.cardTx = [];
+
+
+function formatDateTime(iso) {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso || "");
+  }
+}
+}
+
+function moveRulesToTrash(indices) {
+  ensureTrashStoreShape();
+  const uniq = Array.from(new Set(indices.map(Number))).filter(i => i >= 0 && i < userRules.length);
+  if (!uniq.length) return;
+  if (!confirm(`Move ${uniq.length} rule(s) to Trash?`)) return;
+
+  // Preserve order by removing highest index first
+  uniq.sort((a,b) => b-a);
+  for (const i of uniq) {
+    const rule = userRules[i];
+    const trashId = makeTrashId("rule");
+    trashStore.rules.push({ trashId, deletedAt: new Date().toISOString(), rule });
+    userRules.splice(i, 1);
+  }
+  saveAll();
+  updateRulesTable();
+  renderRulesTrash();
+  recategorizeAll();
+  updateDashboard();
+}
+
+function restoreRuleFromTrash(trashId) {
+  ensureTrashStoreShape();
+  const entry = trashStore.rules.find(x => x.trashId === trashId);
+  if (!entry) return;
+  userRules.push(entry.rule);
+  trashStore.rules = trashStore.rules.filter(x => x.trashId !== trashId);
+  saveAll();
+  updateRulesTable();
+  renderRulesTrash();
+  recategorizeAll();
+  updateDashboard();
+}
+
+function moveCardsToTrash(cardIndices, alsoTx=false) {
+  ensureTrashStoreShape();
+  const uniq = Array.from(new Set(cardIndices.map(Number))).filter(i => i >= 0 && i < cardProfiles.length);
+  if (!uniq.length) return;
+
+  const msg = alsoTx
+    ? `Move ${uniq.length} card profile(s) AND their imported transactions to Trash?`
+    : `Move ${uniq.length} card profile(s) to Trash? (Transactions remain)`;
+  if (!confirm(msg)) return;
+
+  // Remove highest index first to avoid reindexing issues
+  uniq.sort((a,b) => b-a);
+
+  for (const i of uniq) {
+    const card = cardProfiles[i];
+    const cardTrashId = makeTrashId("card");
+    let txTrashId = null;
+
+    if (alsoTx && card?.id) {
+      const txToTrash = allTransactions.filter(t => t.accountId === card.id);
+      if (txToTrash.length) {
+        txTrashId = makeTrashId("ctx");
+        trashStore.cardTx.push({ trashId: txTrashId, deletedAt: new Date().toISOString(), cardId: card.id, transactions: txToTrash });
+        // Remove those transactions from main set
+        allTransactions = allTransactions.filter(t => t.accountId !== card.id);
+      }
+    }
+
+    trashStore.cards.push({ trashId: cardTrashId, deletedAt: new Date().toISOString(), card, txTrashId });
+    cardProfiles.splice(i, 1);
+  }
+
+  saveAll();
+  populateImportCardDropdown();
+  renderCardSettings();
+  renderCardsTrash();
+  updateDashboard();
+}
+
+function restoreCardFromTrash(cardTrashId) {
+  ensureTrashStoreShape();
+  const entry = trashStore.cards.find(x => x.trashId === cardTrashId);
+  if (!entry) return;
+
+  // Restore profile
+  cardProfiles.push(entry.card);
+
+  // Restore tx bundle if it exists
+  if (entry.txTrashId) {
+    const txEntry = (trashStore.cardTx || []).find(x => x.trashId === entry.txTrashId);
+    if (txEntry?.transactions?.length) {
+      allTransactions = allTransactions.concat(txEntry.transactions);
+      trashStore.cardTx = (trashStore.cardTx || []).filter(x => x.trashId !== entry.txTrashId);
+    }
+  }
+
+  // Remove from trash
+  trashStore.cards = trashStore.cards.filter(x => x.trashId !== cardTrashId);
+
+  saveAll();
+  populateImportCardDropdown();
+  renderCardSettings();
+  renderCardsTrash();
+  updateDashboard();
+}
 }
 
 /* =========================================================
@@ -536,14 +697,23 @@ function isTransferByText(merchant, memo) {
   const n = (merchant || "").toUpperCase();
   const m = (memo || "").toUpperCase();
 
+  // Checking → credit card payments
+  if (n.includes("MOBILE BANKING PAYMENT TO CREDIT CARD") || m.includes("MOBILE BANKING PAYMENT TO CREDIT CARD")) return true;
+
+  // Common credit card payment wording
   if (n.includes("PAYMENT TO CREDIT CARD") || m.includes("PAYMENT TO CREDIT CARD")) return true;
   if (n.includes("CREDIT CARD PAYMENT") || m.includes("CREDIT CARD PAYMENT")) return true;
+
+  // Variants seen in many bank exports
+  if ((n.includes("WEB AUTHORIZED PMT") && n.includes("CARD")) || (m.includes("WEB AUTHORIZED PMT") && m.includes("CARD"))) return true;
+  if ((n.includes("ELECTRONIC WITHDRAWAL") && n.includes("CC PAYMENT")) || (m.includes("ELECTRONIC WITHDRAWAL") && m.includes("CC PAYMENT"))) return true;
 
   // Credit card side
   if (n.includes("MOBILE PAYMENT THANK YOU") || m.includes("MOBILE PAYMENT THANK YOU")) return true;
 
   return false;
 }
+
 
 function heuristicCategory(txType, merchant, memo, amount) {
   const t = (txType || "").toUpperCase();
@@ -636,7 +806,11 @@ function inferImportMode(fileName) {
 
 /* ======== NEW helper: treat Transfer as reserved + trimmed ======== */
 function isTransferCat(t) {
-  return (t.category || "").trim() === "Transfer";
+  // Primary: explicit category
+  if ((t.category || "").trim() === "Transfer") return true;
+
+  // Fallback: exclude known transfer/CC-payment rows even if they were categorized before the rules existed
+  return isTransferByText(t.merchant || t.name || "", t.memo || "");
 }
 /* ================================================================= */
 
@@ -834,6 +1008,46 @@ function computeRunningBalanceAt(endISO) {
     explain: `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${endISO}`
   };
 }
+
+
+function computeCheckingBalanceAt(endISO) {
+  if (!endISO) return { runningBal: null, explain: "No end date.", anchor: null, deltaFromAnchor: null, deposits: 0, withdrawals: 0, txCount: 0 };
+
+  // Checking-only running balance:
+  // - Anchor is the most recent "Starting Balance" marker on the checking account (accountId === "checking")
+  // - Replay includes *all* checking transactions after the anchor (including transfers / CC payments)
+  // - Excludes only the marker rows themselves from the replay
+  const markers = allTransactions
+    .filter(t => t.accountId === "checking")
+    .filter(t => t.category === "Starting Balance")
+    .slice()
+    .sort((a,b) => a.dateISO > b.dateISO ? 1 : -1);
+
+  const candidates = markers.filter(m => m.dateISO <= endISO);
+  const anchor = candidates.length ? candidates[candidates.length - 1] : null;
+
+  if (!anchor) return { runningBal: null, explain: `No checking starting balance marker found on/before ${endISO}.`, anchor: null, deltaFromAnchor: null, deposits: 0, withdrawals: 0, txCount: 0 };
+
+  const scope = allTransactions
+    .filter(t => t.accountId === "checking")
+    .filter(t => t.category !== "Starting Balance")
+    .filter(t => t.dateISO >= anchor.dateISO && t.dateISO <= endISO)
+    .map(t => ({ ...t, amount: (Number.isFinite(t.amount) ? t.amount : 0) }));
+
+  let deposits = 0;
+  let withdrawals = 0;
+  for (const t of scope) {
+    if (t.amount >= 0) deposits += t.amount;
+    else withdrawals += t.amount; // negative
+  }
+  const netSinceAnchor = deposits + withdrawals;
+  const runningBal = anchor.amount + netSinceAnchor;
+
+  const explain = `Anchor ${money(anchor.amount)} on ${anchor.dateISO} → as of ${endISO} · ${scope.length} tx · Deposits ${money(deposits)} · Withdrawals ${money(withdrawals)} · Net ${moneySigned(netSinceAnchor)}`;
+
+  return { runningBal, deltaFromAnchor: netSinceAnchor, anchor, explain, deposits, withdrawals, txCount: scope.length };
+}
+
 
 /* =========================================================
    6) Smart Insights
@@ -1167,6 +1381,9 @@ const els = {
   balanceBox: document.getElementById("balanceBox"),
   balanceHint: document.getElementById("balanceHint"),
 
+  checkingBalanceBox: document.getElementById("checkingBalanceBox"),
+  checkingBalanceHint: document.getElementById("checkingBalanceHint"),
+
   ccKpiLine: document.getElementById("ccKpiLine"),
   ccTableWrap: document.getElementById("ccTableWrap"),
   payoffHeadline: document.getElementById("payoffHeadline"),
@@ -1175,6 +1392,12 @@ const els = {
   cardSettingsWrap: document.getElementById("cardSettingsWrap"),
   addCardBtn: document.getElementById("addCardBtn"),
   saveCardSettingsBtn: document.getElementById("saveCardSettingsBtn"),
+  selectAllCardsBtn: document.getElementById("selectAllCardsBtn"),
+  trashCardsAlsoTxChk: document.getElementById("trashCardsAlsoTxChk"),
+  trashSelectedCardsBtn: document.getElementById("trashSelectedCardsBtn"),
+  cardsTrashCount: document.getElementById("cardsTrashCount"),
+  cardsTrashWrap: document.getElementById("cardsTrashWrap"),
+  clearCardsTrashBtn: document.getElementById("clearCardsTrashBtn"),
   cardSettingsStatus: document.getElementById("cardSettingsStatus"),
 
   recurringCount: document.getElementById("recurringCount"),
@@ -1202,8 +1425,13 @@ const els = {
   ruleCategory: document.getElementById("ruleCategory"),
   addRuleBtn: document.getElementById("addRuleBtn"),
   reapplyRulesBtn: document.getElementById("reapplyRulesBtn"),
+  selectAllRulesBtn: document.getElementById("selectAllRulesBtn"),
+  trashSelectedRulesBtn: document.getElementById("trashSelectedRulesBtn"),
   clearRulesBtn: document.getElementById("clearRulesBtn"),
-  rulesTableWrap: document.getElementById("rulesTableWrap")
+  rulesTableWrap: document.getElementById("rulesTableWrap"),
+  rulesTrashCount: document.getElementById("rulesTrashCount"),
+  rulesTrashWrap: document.getElementById("rulesTrashWrap"),
+  clearRulesTrashBtn: document.getElementById("clearRulesTrashBtn")
 };
 
 function updateViewModeUI() {
@@ -1225,17 +1453,24 @@ function buildCategoryBreakdown(scopeTx) {
 }
 
 function updateRulesTable() {
+  // Enable/disable bulk button based on selections
+  const anySelected = () => !!els.rulesTableWrap.querySelector("input[data-rulechk]:checked");
+
   if (!userRules.length) {
     els.rulesTableWrap.innerHTML = `<p class="small">No rules yet.</p>`;
+    els.trashSelectedRulesBtn.disabled = true;
     return;
   }
 
   const rows = userRules.map((r, idx) => `
     <tr>
+      <td style="width:40px; text-align:center;">
+        <input type="checkbox" data-rulechk="${idx}" />
+      </td>
       <td class="mono">${idx + 1}</td>
       <td class="mono">${escapeHtml(r.contains || "")}</td>
       <td>${escapeHtml(r.category || "")}</td>
-      <td><button class="ghost" data-del="${idx}">Delete</button></td>
+      <td><button class="ghost" data-trash="${idx}">Trash</button></td>
       <td><button class="ghost" data-up="${idx}">Up</button></td>
       <td><button class="ghost" data-down="${idx}">Down</button></td>
     </tr>
@@ -1244,20 +1479,24 @@ function updateRulesTable() {
   els.rulesTableWrap.innerHTML = `
     <div style="overflow:auto;">
       <table>
-        <thead><tr><th>#</th><th>Contains</th><th>Category</th><th></th><th></th><th></th></tr></thead>
+        <thead><tr><th></th><th>#</th><th>Contains</th><th>Category</th><th></th><th></th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
   `;
 
-  els.rulesTableWrap.querySelectorAll("button[data-del]").forEach(btn => {
+  const refreshBulkState = () => {
+    els.trashSelectedRulesBtn.disabled = !anySelected();
+  };
+
+  els.rulesTableWrap.querySelectorAll('input[data-rulechk]').forEach(chk => {
+    chk.addEventListener("change", refreshBulkState);
+  });
+
+  els.rulesTableWrap.querySelectorAll("button[data-trash]").forEach(btn => {
     btn.addEventListener("click", () => {
-      const i = Number(btn.getAttribute("data-del"));
-      userRules.splice(i, 1);
-      saveAll();
-      updateRulesTable();
-      recategorizeAll();
-      updateDashboard();
+      const i = Number(btn.getAttribute("data-trash"));
+      moveRulesToTrash([i]);
     });
   });
 
@@ -1288,6 +1527,59 @@ function updateRulesTable() {
       updateDashboard();
     });
   });
+
+  refreshBulkState();
+}
+
+function renderRulesTrash() {
+  const items = (trashStore.rules || []).slice().sort((a,b) => (a.deletedAt || "").localeCompare(b.deletedAt || "")).reverse();
+  els.rulesTrashCount.textContent = String(items.length);
+  els.clearRulesTrashBtn.disabled = items.length === 0;
+
+  if (!items.length) {
+    els.rulesTrashWrap.innerHTML = `<div class="small">Trash is empty.</div>`;
+    return;
+  }
+
+  const rows = items.map((entry, idx) => {
+    const ts = entry.deletedAt ? formatDateTime(entry.deletedAt) : "";
+    const r = entry.rule || {};
+    return `
+      <tr>
+        <td class="mono">${ts}</td>
+        <td class="mono">${escapeHtml(r.contains || "")}</td>
+        <td>${escapeHtml(r.category || "")}</td>
+        <td><button class="ghost" data-restore-rule="${entry.trashId}">Restore</button></td>
+        <td><button class="danger" data-del-rule="${entry.trashId}">Delete Permanently</button></td>
+      </tr>
+    `;
+  }).join("");
+
+  els.rulesTrashWrap.innerHTML = `
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>Deleted</th><th>Contains</th><th>Category</th><th></th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  els.rulesTrashWrap.querySelectorAll('button[data-restore-rule]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-restore-rule");
+      restoreRuleFromTrash(id);
+    });
+  });
+
+  els.rulesTrashWrap.querySelectorAll('button[data-del-rule]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-del-rule");
+      if (!confirm("Permanently delete this rule from Trash? This can't be undone.")) return;
+      trashStore.rules = (trashStore.rules || []).filter(x => x.trashId !== id);
+      saveAll();
+      renderRulesTrash();
+    });
+  });
 }
 
 /* ===================== Top headline is Monthly Performance ======================= */
@@ -1306,13 +1598,18 @@ function updateTopDelta(scope, totals) {
 function renderCardSettings() {
   if (!cardProfiles.length) {
     els.cardSettingsWrap.innerHTML = `<div class="small hint">No cards yet. Click “Add Card Profile”.</div>`;
+    els.trashSelectedCardsBtn.disabled = true;
     return;
   }
 
   const rows = cardProfiles.map((c, idx) => {
     return `
       <div class="kpiBox" style="margin-bottom:10px;">
-        <div class="row">
+        <div class="row" style="align-items:flex-start;">
+          <div style="min-width:44px; padding-top:6px; text-align:center;">
+            <input type="checkbox" data-cardchk="${idx}" />
+          </div>
+
           <div style="min-width:260px;">
             <div class="t">Card Name</div>
             <input data-card="${idx}" data-field="name" value="${escapeHtml(c.name||"")}" />
@@ -1345,8 +1642,8 @@ function renderCardSettings() {
           </div>
         </div>
 
-        <div class="btnRow" style="margin-top:10px;">
-          <button class="danger" data-delcard="${idx}">Delete Card</button>
+        <div class="small hint" style="margin-top:8px;">
+          Tip: use “Move Selected to Trash” to remove one or more cards safely. You can restore them from Trash later.
         </div>
       </div>
     `;
@@ -1354,16 +1651,74 @@ function renderCardSettings() {
 
   els.cardSettingsWrap.innerHTML = rows;
 
-  els.cardSettingsWrap.querySelectorAll("button[data-delcard]").forEach(btn => {
+  const refreshBulk = () => {
+    const any = !!els.cardSettingsWrap.querySelector('input[data-cardchk]:checked');
+    els.trashSelectedCardsBtn.disabled = !any;
+  };
+
+  els.cardSettingsWrap.querySelectorAll('input[data-cardchk]').forEach(chk => {
+    chk.addEventListener("change", refreshBulk);
+  });
+
+  refreshBulk();
+  renderCardsTrash();
+}
+
+function renderCardsTrash() {
+  const cardItems = (trashStore.cards || []).slice().sort((a,b) => (a.deletedAt || "").localeCompare(b.deletedAt || "")).reverse();
+  const txItems = (trashStore.cardTx || []);
+  els.cardsTrashCount.textContent = String(cardItems.length);
+  els.clearCardsTrashBtn.disabled = cardItems.length === 0;
+
+  if (!cardItems.length) {
+    els.cardsTrashWrap.innerHTML = `<div class="small">Trash is empty.</div>`;
+    return;
+  }
+
+  const rows = cardItems.map(entry => {
+    const ts = entry.deletedAt ? formatDateTime(entry.deletedAt) : "";
+    const c = entry.card || {};
+    const hasTx = !!entry.txTrashId && txItems.some(t => t.trashId === entry.txTrashId);
+    return `
+      <tr>
+        <td class="mono">${ts}</td>
+        <td>${escapeHtml(c.name || "")}</td>
+        <td class="mono">${escapeHtml(c.last4 || "")}</td>
+        <td class="small">${hasTx ? "Profile + transactions" : "Profile only"}</td>
+        <td><button class="ghost" data-restore-card="${entry.trashId}">Restore</button></td>
+        <td><button class="danger" data-del-card="${entry.trashId}">Delete Permanently</button></td>
+      </tr>
+    `;
+  }).join("");
+
+  els.cardsTrashWrap.innerHTML = `
+    <div style="overflow:auto;">
+      <table>
+        <thead><tr><th>Deleted</th><th>Name</th><th>Last4</th><th>Contents</th><th></th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  els.cardsTrashWrap.querySelectorAll('button[data-restore-card]').forEach(btn => {
     btn.addEventListener("click", () => {
-      const i = Number(btn.getAttribute("data-delcard"));
-      const c = cardProfiles[i];
-      if (!confirm(`Delete card profile "${c?.name || c?.last4}"? (Transactions remain; profile settings removed)`)) return;
-      cardProfiles.splice(i, 1);
+      const id = btn.getAttribute("data-restore-card");
+      restoreCardFromTrash(id);
+    });
+  });
+
+  els.cardsTrashWrap.querySelectorAll('button[data-del-card]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-del-card");
+      if (!confirm("Permanently delete this card from Trash? This can't be undone.")) return;
+      // If this entry had a txTrashId, remove that tx bundle too.
+      const entry = (trashStore.cards || []).find(x => x.trashId === id);
+      if (entry?.txTrashId) {
+        trashStore.cardTx = (trashStore.cardTx || []).filter(x => x.trashId !== entry.txTrashId);
+      }
+      trashStore.cards = (trashStore.cards || []).filter(x => x.trashId !== id);
       saveAll();
-      populateImportCardDropdown();
-      renderCardSettings();
-      updateDashboard();
+      renderCardsTrash();
     });
   });
 }
@@ -1409,6 +1764,8 @@ function updateDashboard() {
   // Running balance stays as-is
   const bal = computeRunningBalanceAt(scope.endISO);
 
+  const chkBal = computeCheckingBalanceAt(scope.endISO);
+
   // Top headline uses Monthly Performance
   updateTopDelta(scope, totals);
 
@@ -1427,6 +1784,16 @@ function updateDashboard() {
     els.balanceBox.textContent = money(bal.runningBal);
     els.balanceHint.textContent = bal.explain;
   }
+
+
+  if (chkBal.runningBal === null) {
+    els.checkingBalanceBox.textContent = "(missing)";
+    els.checkingBalanceHint.textContent = chkBal.explain;
+  } else {
+    els.checkingBalanceBox.textContent = money(chkBal.runningBal);
+    els.checkingBalanceHint.textContent = chkBal.explain;
+  }
+
 
   if (els.chartMode.value === "cashflow") {
     const data = [{ label:"Income", value: totals.income }, { label:"Outflows", value: totals.outflows }];
@@ -1701,13 +2068,35 @@ els.reapplyRulesBtn.addEventListener("click", () => {
   setTimeout(()=>els.status.textContent="", 1200);
 });
 
+els.selectAllRulesBtn.addEventListener("click", () => {
+  const checks = els.rulesTableWrap.querySelectorAll('input[data-rulechk]');
+  const allChecked = !!els.rulesTableWrap.querySelector('input[data-rulechk]') && Array.from(checks).every(c => c.checked);
+  checks.forEach(c => c.checked = !allChecked);
+  // Trigger state refresh
+  els.trashSelectedRulesBtn.disabled = !els.rulesTableWrap.querySelector('input[data-rulechk]:checked');
+});
+
+els.trashSelectedRulesBtn.addEventListener("click", () => {
+  const checks = els.rulesTableWrap.querySelectorAll('input[data-rulechk]:checked');
+  const idxs = Array.from(checks).map(c => Number(c.getAttribute("data-rulechk")));
+  moveRulesToTrash(idxs);
+});
+
 els.clearRulesBtn.addEventListener("click", () => {
-  if (!confirm("Delete ALL rules?")) return;
-  userRules = [];
+  if (!userRules.length) return;
+  // Move all rules to trash (not permanent delete)
+  const idxs = userRules.map((_,i) => i);
+  moveRulesToTrash(idxs);
+});
+
+els.clearRulesTrashBtn.addEventListener("click", () => {
+  ensureTrashStoreShape();
+  const n = (trashStore.rules || []).length;
+  if (!n) return;
+  if (!confirm(`Clear Rules Trash (${n} item(s)) permanently? This can't be undone.`)) return;
+  trashStore.rules = [];
   saveAll();
-  updateRulesTable();
-  recategorizeAll();
-  updateDashboard();
+  renderRulesTrash();
 });
 
 // Card settings controls
@@ -1731,6 +2120,34 @@ els.saveCardSettingsBtn.addEventListener("click", () => {
   els.cardSettingsStatus.textContent = "Saved card settings.";
   setTimeout(()=>els.cardSettingsStatus.textContent="", 1200);
   updateDashboard();
+
+els.selectAllCardsBtn.addEventListener("click", () => {
+  const checks = els.cardSettingsWrap.querySelectorAll('input[data-cardchk]');
+  const allChecked = !!els.cardSettingsWrap.querySelector('input[data-cardchk]') && Array.from(checks).every(c => c.checked);
+  checks.forEach(c => c.checked = !allChecked);
+  els.trashSelectedCardsBtn.disabled = !els.cardSettingsWrap.querySelector('input[data-cardchk]:checked');
+});
+
+els.trashSelectedCardsBtn.addEventListener("click", () => {
+  const checks = els.cardSettingsWrap.querySelectorAll('input[data-cardchk]:checked');
+  const idxs = Array.from(checks).map(c => Number(c.getAttribute("data-cardchk")));
+  const alsoTx = !!els.trashCardsAlsoTxChk.checked;
+  moveCardsToTrash(idxs, alsoTx);
+  // reset option after action
+  els.trashCardsAlsoTxChk.checked = false;
+});
+
+els.clearCardsTrashBtn.addEventListener("click", () => {
+  ensureTrashStoreShape();
+  const n = (trashStore.cards || []).length;
+  if (!n) return;
+  // Also clears any trashed card transaction bundles (since they only exist to support restore).
+  if (!confirm(`Clear Credit Cards Trash (${n} item(s)) permanently? This can't be undone.`)) return;
+  trashStore.cards = [];
+  trashStore.cardTx = [];
+  saveAll();
+  renderCardsTrash();
+});
 });
 
 /* =========================================================
@@ -1738,6 +2155,7 @@ els.saveCardSettingsBtn.addEventListener("click", () => {
 ========================================================= */
 (function init() {
   ensureDefaultCards();
+  ensureTrashStoreShape();
 
   els.monthSelect.value = yyyymmFromDate(new Date());
 
@@ -1762,6 +2180,8 @@ els.saveCardSettingsBtn.addEventListener("click", () => {
   updateImportUI();
   renderCardSettings();
   updateRulesTable();
+  renderCardsTrash();
+  renderRulesTrash();
   updateDashboard();
 })();
 </script>
