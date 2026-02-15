@@ -714,7 +714,6 @@ function isTransferByText(merchant, memo) {
   return false;
 }
 
-
 function heuristicCategory(txType, merchant, memo, amount) {
   const t = (txType || "").toUpperCase();
   const n = (merchant || "").toUpperCase();
@@ -1009,14 +1008,9 @@ function computeRunningBalanceAt(endISO) {
   };
 }
 
-
 function computeCheckingBalanceAt(endISO) {
   if (!endISO) return { runningBal: null, explain: "No end date.", anchor: null, deltaFromAnchor: null, deposits: 0, withdrawals: 0, txCount: 0 };
 
-  // Checking-only running balance:
-  // - Anchor is the most recent "Starting Balance" marker on the checking account (accountId === "checking")
-  // - Replay includes *all* checking transactions after the anchor (including transfers / CC payments)
-  // - Excludes only the marker rows themselves from the replay
   const markers = allTransactions
     .filter(t => t.accountId === "checking")
     .filter(t => t.category === "Starting Balance")
@@ -1038,7 +1032,7 @@ function computeCheckingBalanceAt(endISO) {
   let withdrawals = 0;
   for (const t of scope) {
     if (t.amount >= 0) deposits += t.amount;
-    else withdrawals += t.amount; // negative
+    else withdrawals += t.amount;
   }
   const netSinceAnchor = deposits + withdrawals;
   const runningBal = anchor.amount + netSinceAnchor;
@@ -1047,7 +1041,6 @@ function computeCheckingBalanceAt(endISO) {
 
   return { runningBal, deltaFromAnchor: netSinceAnchor, anchor, explain, deposits, withdrawals, txCount: scope.length };
 }
-
 
 /* =========================================================
    6) Smart Insights
@@ -1453,7 +1446,6 @@ function buildCategoryBreakdown(scopeTx) {
 }
 
 function updateRulesTable() {
-  // Enable/disable bulk button based on selections
   const anySelected = () => !!els.rulesTableWrap.querySelector("input[data-rulechk]:checked");
 
   if (!userRules.length) {
@@ -1541,7 +1533,7 @@ function renderRulesTrash() {
     return;
   }
 
-  const rows = items.map((entry, idx) => {
+  const rows = items.map((entry) => {
     const ts = entry.deletedAt ? formatDateTime(entry.deletedAt) : "";
     const r = entry.rule || {};
     return `
@@ -1731,7 +1723,6 @@ function renderCardsTrash() {
       const id = btn.getAttribute("data-del-card");
       if (!confirm("Permanently delete this card from Trash? This can't be undone.")) return;
 
-      // If this entry had a tx bundle, delete it too (since it can't be restored anymore).
       const entry = (trashStore.cards || []).find(x => x.trashId === id);
       if (entry?.txTrashId) {
         trashStore.cardTx = (trashStore.cardTx || []).filter(x => x.trashId !== entry.txTrashId);
@@ -1766,21 +1757,17 @@ function updateDashboard() {
   updateViewModeUI();
   const scope = getScope();
 
-  // Set default range inputs if empty (auto from data)
   const { minISO, maxISO } = getDataRange();
   if (els.viewMode.value === "range") {
     if (!els.rangeStart.value && minISO) els.rangeStart.value = minISO;
     if (!els.rangeEnd.value && maxISO) els.rangeEnd.value = maxISO;
   }
 
-  // Scope transactions
   const scopedAll = filterToScope(allTransactions, scope);
   const totals = scopeTotals(scopedAll);
 
-  // Topline KPI
   updateTopDelta(scope, totals);
 
-  // Totals cards
   els.scopePill.textContent = scope.label;
 
   els.income.textContent = money(totals.income);
@@ -1789,24 +1776,20 @@ function updateDashboard() {
   els.transfers.textContent = moneySigned(totals.transfers);
   els.netChange.textContent = moneySigned(totals.netChange);
 
-  // Running balance
   const rb = computeRunningBalanceAt(scope.endISO);
   els.balanceBox.textContent = (rb.runningBal === null) ? "—" : money(rb.runningBal);
   els.balanceHint.textContent = rb.explain || "";
 
-  // Checking balance
   const cb = computeCheckingBalanceAt(scope.endISO);
   els.checkingBalanceBox.textContent = (cb.runningBal === null) ? "—" : money(cb.runningBal);
   els.checkingBalanceHint.textContent = cb.explain || "";
 
-  // Balance subline
   if (rb.anchor) {
     els.balanceSub.innerHTML = `Running Balance anchor: <span class="mono">${rb.anchor.dateISO}</span> (${money(rb.anchor.amount)})`;
   } else {
     els.balanceSub.textContent = "";
   }
 
-  // Charts
   const chartMode = els.chartMode.value;
   let chartData = [];
   let chartTitle = "";
@@ -1821,7 +1804,6 @@ function updateDashboard() {
 
   drawPieWithLegend(els.pieCanvas, chartData, chartTitle, 10);
 
-  // Pie summary
   if (chartMode === "cashflow") {
     const inflow = chartData.find(d => d.label === "Inflows")?.value || 0;
     const outflow = chartData.find(d => d.label === "Outflows")?.value || 0;
@@ -1832,7 +1814,6 @@ function updateDashboard() {
     els.pieSummary.innerHTML = `Total spending: <b>${money(totalSpend)}</b> • Top: ${top3 || "—"}`;
   }
 
-  // Table
   const rows = totals.scopeTxAll
     .slice()
     .sort((a,b) => a.dateISO > b.dateISO ? -1 : 1)
@@ -1855,7 +1836,6 @@ function updateDashboard() {
     `;
   }).join("");
 
-  // Smart insights
   const recurring = detectRecurring(totals.scopeTxAll);
   els.recurringCount.textContent = String(recurring.length);
   els.recurringList.innerHTML = recurring.length
@@ -1885,17 +1865,24 @@ function updateDashboard() {
   const totalCCPay = ccStats.reduce((s,x)=>s+x.payments,0);
   els.ccKpiLine.textContent = `CC Spend ${money(totalCCSpend)} • CC Payments ${money(totalCCPay)}`;
 
+  // ===== CHANGE: add Balance + Limit back into the per-card table =====
   const ccTable = ccStats.map(x => {
     const name = x.card?.name || ("Card "+(x.card?.last4||""));
     const last4 = x.card?.last4 || "";
     const util = (x.util === null || x.util === undefined) ? "—" : `${Math.round(x.util*100)}%`;
+
+    const balTxt = (x.balance === null || x.balance === undefined) ? "—" : money(x.balance);
+    const limTxt = (x.limit === null || x.limit === undefined) ? "—" : money(x.limit);
+
     return `
       <tr>
         <td>${escapeHtml(name)} <span class="pill">•••• ${escapeHtml(last4)}</span></td>
-        <td class="mono">${money(x.spend)}</td>
-        <td class="mono">${money(x.payments)}</td>
-        <td class="mono">${moneySigned(x.net)}</td>
-        <td class="mono">${util}</td>
+        <td class="mono right">${money(x.spend)}</td>
+        <td class="mono right">${money(x.payments)}</td>
+        <td class="mono right">${moneySigned(x.net)}</td>
+        <td class="mono right">${balTxt}</td>
+        <td class="mono right">${limTxt}</td>
+        <td class="mono right">${util}</td>
       </tr>
     `;
   }).join("");
@@ -1903,23 +1890,32 @@ function updateDashboard() {
   els.ccTableWrap.innerHTML = `
     <div style="overflow:auto;">
       <table>
-        <thead><tr><th>Card</th><th>Spend</th><th>Payments</th><th>Net</th><th>Util</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Card</th>
+            <th class="right">Spend</th>
+            <th class="right">Payments</th>
+            <th class="right">Net</th>
+            <th class="right">Balance</th>
+            <th class="right">Limit</th>
+            <th class="right">Util</th>
+          </tr>
+        </thead>
         <tbody>${ccTable || ""}</tbody>
       </table>
     </div>
   `;
+  // ===================================================================
 
   const payoff = payoffPlannerSummary();
   els.payoffHeadline.textContent = payoff.headline || "—";
   els.payoffDetails.innerHTML = payoff.details || "";
 
-  // Render settings/trash panels
   renderCardSettings();
   renderCardsTrash();
   updateRulesTable();
   renderRulesTrash();
 
-  // Ensure import dropdown up to date
   populateImportCardDropdown();
 }
 
@@ -2025,7 +2021,6 @@ els.selectAllRulesBtn.addEventListener("click", () => {
   const checks = els.rulesTableWrap.querySelectorAll('input[data-rulechk]');
   const allChecked = !!els.rulesTableWrap.querySelector('input[data-rulechk]') && Array.from(checks).every(c => c.checked);
   checks.forEach(c => c.checked = !allChecked);
-  // Trigger state refresh
   els.trashSelectedRulesBtn.disabled = !els.rulesTableWrap.querySelector('input[data-rulechk]:checked');
 });
 
@@ -2037,7 +2032,6 @@ els.trashSelectedRulesBtn.addEventListener("click", () => {
 
 els.clearRulesBtn.addEventListener("click", () => {
   if (!userRules.length) return;
-  // Move all rules to trash (not permanent delete)
   const idxs = userRules.map((_,i) => i);
   moveRulesToTrash(idxs);
 });
@@ -2087,7 +2081,6 @@ els.trashSelectedCardsBtn.addEventListener("click", () => {
   const idxs = Array.from(checks).map(c => Number(c.getAttribute("data-cardchk")));
   const alsoTx = !!els.trashCardsAlsoTxChk.checked;
   moveCardsToTrash(idxs, alsoTx);
-  // reset option after action
   els.trashCardsAlsoTxChk.checked = false;
 });
 
@@ -2095,7 +2088,6 @@ els.clearCardsTrashBtn.addEventListener("click", () => {
   ensureTrashStoreShape();
   const n = (trashStore.cards || []).length;
   if (!n) return;
-  // Also clears any trashed card transaction bundles (since they only exist to support restore).
   if (!confirm(`Clear Credit Cards Trash (${n} item(s)) permanently?\n\nThis will also delete any saved transaction bundles for restore (if present). This can't be undone.`)) return;
 
   trashStore.cards = [];
