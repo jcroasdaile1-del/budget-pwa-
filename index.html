@@ -2432,9 +2432,18 @@ function drawBigPie(canvas, data, title){
     return;
   }
 
-  const cx = Math.round(W*0.50);
-  const cy = Math.round(H*0.58);
-  const r  = Math.round(Math.min(W,H)*0.44);
+  const topPad = 58;   // space for title
+  const bottomPad = 24;
+  const sidePad = 24;
+
+  const availW = Math.max(0, W - sidePad*2);
+  const availH = Math.max(0, H - topPad - bottomPad);
+
+  const cx = Math.round(sidePad + availW/2);
+  const cy = Math.round(topPad + availH/2);
+
+  // Fit radius to available area (prevents clipping)
+  const r  = Math.max(10, Math.floor(Math.min(availW, availH) * 0.48));
 
   const palette=["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
   let start=-Math.PI/2;
@@ -2551,11 +2560,25 @@ function renderFidelitySnapshotUI() {
   const legendEl = document.getElementById("fidPieLegend");
   if (legendEl) {
     const totalAlloc = pieData.reduce((s,x)=>s+Number(x.value||0),0) || 0;
-    const lines = pieData.map(x => {
+
+    // Keep legend colors in-sync with drawBigPie slice palette/order
+    const palette=["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
+
+    const rowsHtml = pieData.map((x,i) => {
       const pct = totalAlloc ? (Number(x.value||0)/totalAlloc)*100 : 0;
-      return `${escapeHtml(String(x.label||""))}: ${(typeof money==="function"?money(Number(x.value||0)):fidMoney(Number(x.value||0)))} (${pct.toFixed(1)}%)`;
-    }).join("<br>");
-    legendEl.innerHTML = lines || "";
+      const color = palette[i % palette.length];
+      const label = escapeHtml(String(x.label||""));
+      const val = (typeof money==="function" ? money(Number(x.value||0)) : fidMoney(Number(x.value||0)));
+      return `
+        <div style="display:flex; align-items:center; gap:10px; margin:6px 0;">
+          <span style="width:12px; height:12px; border-radius:3px; background:${color}; display:inline-block; flex:0 0 12px;"></span>
+          <span style="flex:1;">${label}</span>
+          <span class="mono" style="color:#9fb0d0; white-space:nowrap;">${val} (${pct.toFixed(1)}%)</span>
+        </div>
+      `.trim();
+    }).join("");
+
+    legendEl.innerHTML = rowsHtml || "";
   }
 // Holdings table
   const rows = positions
