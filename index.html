@@ -454,6 +454,15 @@
       <button class="danger" id="clearBtn">Start Fresh (Delete Everything)</button>
     </div>
 
+    <div class="btnRow" style="margin-top:10px;">
+      <button class="ghost" id="exportBackupBtn">Export Backup (JSON)</button>
+      <button class="ghost" id="importBackupBtn">Import Backup (JSON)</button>
+      <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none;" />
+    </div>
+
+    <p id="backupStatus" class="small"></p>
+
+
     <p id="status" class="small"></p>
     <div id="debug" class="small mono"></div>
   </div>
@@ -1532,6 +1541,12 @@ const els = {
   status: document.getElementById("status"),
   debug: document.getElementById("debug"),
 
+
+  exportBackupBtn: document.getElementById("exportBackupBtn"),
+  importBackupBtn: document.getElementById("importBackupBtn"),
+  backupFileInput: document.getElementById("backupFileInput"),
+  backupStatus: document.getElementById("backupStatus"),
+
   importAs: document.getElementById("importAs"),
   importCardWrap: document.getElementById("importCardWrap"),
   importCard: document.getElementById("importCard"),
@@ -2123,6 +2138,120 @@ els.clearBtn.addEventListener("click", () => {
   saveAll();
   updateDashboard();
 });
+
+/* =========================================================
+   Backup Export / Import (JSON) — additive
+========================================================= */
+function getFidelitySnapshotsForBackup() {
+  try {
+    const snaps = JSON.parse(localStorage.getItem("fidelitySnapshots") || "[]");
+    return Array.isArray(snaps) ? snaps : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildBackupPayload() {
+  ensureTrashStoreShape();
+  return {
+    app: "Budget Command Center",
+    schemaVersion: 1,
+    exportedAtISO: new Date().toISOString(),
+    data: {
+      transactions: allTransactions || [],
+      userRules: userRules || [],
+      importMeta: importMeta || [],
+      cardProfiles: cardProfiles || [],
+      trashStore: trashStore || { rules: [], cards: [], cardTx: [] },
+      fidelitySnapshots: getFidelitySnapshotsForBackup()
+    }
+  };
+}
+
+function downloadJsonFile(obj, filename) {
+  const jsonText = JSON.stringify(obj, null, 2);
+  const blob = new Blob([jsonText], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 800);
+}
+
+function coerceArray(x) { return Array.isArray(x) ? x : []; }
+
+function applyBackupPayload(raw) {
+  const payload = raw && typeof raw === "object" ? (raw.data && typeof raw.data === "object" ? raw.data : raw) : null;
+  if (!payload) throw new Error("Backup file is not valid JSON data.");
+
+  // Coerce shapes (be forgiving)
+  allTransactions = coerceArray(payload.transactions);
+  userRules       = coerceArray(payload.userRules);
+  importMeta      = coerceArray(payload.importMeta);
+  cardProfiles    = coerceArray(payload.cardProfiles);
+
+  trashStore = (payload.trashStore && typeof payload.trashStore === "object") ? payload.trashStore : { rules: [], cards: [], cardTx: [] };
+  ensureTrashStoreShape();
+
+  // Fidelity snapshots live in localStorage (module reads from there)
+  if (payload.fidelitySnapshots !== undefined) {
+    localStorage.setItem("fidelitySnapshots", JSON.stringify(coerceArray(payload.fidelitySnapshots)));
+  }
+
+  // Keep your default cards seeded if backup didn't include them
+  ensureDefaultCards();
+
+  saveAll();
+}
+
+/* Backup controls */
+els.exportBackupBtn?.addEventListener("click", () => {
+  try {
+    const backup = buildBackupPayload();
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadJsonFile(backup, `budget-backup-${stamp}.json`);
+    if (els.backupStatus) els.backupStatus.textContent = `Backup exported (${stamp}).`;
+    setTimeout(()=>{ if (els.backupStatus) els.backupStatus.textContent = ""; }, 2500);
+  } catch (e) {
+    if (els.backupStatus) els.backupStatus.textContent = `Export error: ${e.message || e}`;
+  }
+});
+
+els.importBackupBtn?.addEventListener("click", () => {
+  els.backupFileInput?.click();
+});
+
+els.backupFileInput?.addEventListener("change", async () => {
+  const file = els.backupFileInput.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    let raw = null;
+    try { raw = JSON.parse(text); } catch { throw new Error("That file isn't valid JSON."); }
+
+    if (!confirm("Import this backup?\n\nThis will REPLACE the current in-browser data (transactions, rules, card settings, trash, and Fidelity snapshots).")) {
+      els.backupFileInput.value = "";
+      return;
+    }
+
+    applyBackupPayload(raw);
+
+    if (els.backupStatus) els.backupStatus.textContent = "Backup imported. Reloading…";
+
+    // Reload so every module (including Fidelity snapshots UI) re-inits from storage cleanly.
+    setTimeout(()=>location.reload(), 250);
+  } catch (e) {
+    if (els.backupStatus) els.backupStatus.textContent = `Import error: ${e.message || e}`;
+  } finally {
+    // allow re-importing same file later
+    if (els.backupFileInput) els.backupFileInput.value = "";
+  }
+});
+
 
 // Rules controls
 els.addRuleBtn.addEventListener("click", () => {
