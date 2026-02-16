@@ -455,6 +455,13 @@
       <button class="danger" id="clearBtn">Start Fresh (Delete Everything)</button>
     </div>
 
+    <div class="btnRow" style="margin-top:10px;">
+      <button class="ghost" id="exportBackupBtn">Export Backup (JSON)</button>
+      <button class="ghost" id="importBackupBtn">Import Backup (JSON)</button>
+      <input type="file" id="importBackupFile" accept=".json,application/json" style="display:none;" />
+    </div>
+    <div class="small hint">Tip: Use Export before closing a private window. Import restores everything (transactions, rules, cards, trash, Fidelity snapshots).</div>
+
     <p id="status" class="small"></p>
     <div id="debug" class="small mono"></div>
   </div>
@@ -1530,6 +1537,9 @@ const els = {
   importBtn: document.getElementById("importBtn"),
   removeMarkersBtn: document.getElementById("removeMarkersBtn"),
   clearBtn: document.getElementById("clearBtn"),
+  exportBackupBtn: document.getElementById("exportBackupBtn"),
+  importBackupBtn: document.getElementById("importBackupBtn"),
+  importBackupFile: document.getElementById("importBackupFile"),
   status: document.getElementById("status"),
   debug: document.getElementById("debug"),
 
@@ -2124,6 +2134,93 @@ els.clearBtn.addEventListener("click", () => {
   saveAll();
   updateDashboard();
 });
+
+
+// Backup Export / Import (JSON)
+function buildBackupPayload() {
+  ensureTrashStoreShape();
+  const fidelitySnapshots = JSON.parse(localStorage.getItem("fidelitySnapshots") || "[]");
+  return {
+    app: "Budget Command Center",
+    version: 1,
+    exportedAtISO: new Date().toISOString(),
+    transactions: allTransactions,
+    userRules,
+    importMeta,
+    cardProfiles,
+    trashStore,
+    fidelitySnapshots
+  };
+}
+
+function downloadJson(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function exportBackupNow() {
+  try {
+    const payload = buildBackupPayload();
+    const ts = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
+    downloadJson(`budget-backup-${ts}.json`, payload);
+    els.status.textContent = "Backup exported.";
+  } catch (e) {
+    console.error(e);
+    els.status.textContent = "Backup export failed. See console.";
+  }
+}
+
+async function importBackupFromFile(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+
+  // Basic validation
+  if (!data || typeof data !== "object") throw new Error("Invalid JSON.");
+  const required = ["transactions","userRules","importMeta","cardProfiles","trashStore"];
+  for (const k of required) {
+    if (!(k in data)) throw new Error(`Backup missing key: ${k}`);
+  }
+
+  if (!confirm("Import backup? This will overwrite your current data in this browser.")) return;
+
+  localStorage.setItem("transactions", JSON.stringify(data.transactions || []));
+  localStorage.setItem("userRules", JSON.stringify(data.userRules || []));
+  localStorage.setItem("importMeta", JSON.stringify(data.importMeta || []));
+  localStorage.setItem("cardProfiles", JSON.stringify(data.cardProfiles || []));
+  localStorage.setItem("trashStore", JSON.stringify(data.trashStore || { rules: [], cards: [], cardTx: [] }));
+  if ("fidelitySnapshots" in data) {
+    localStorage.setItem("fidelitySnapshots", JSON.stringify(data.fidelitySnapshots || []));
+  }
+  els.status.textContent = "Backup imported. Reloading...";
+  location.reload();
+}
+
+els.exportBackupBtn.addEventListener("click", exportBackupNow);
+
+els.importBackupBtn.addEventListener("click", () => {
+  els.importBackupFile.value = "";
+  els.importBackupFile.click();
+});
+
+els.importBackupFile.addEventListener("change", async () => {
+  const f = els.importBackupFile.files?.[0];
+  if (!f) return;
+  try {
+    els.status.textContent = "Importing backup...";
+    await importBackupFromFile(f);
+  } catch (e) {
+    console.error(e);
+    els.status.textContent = "Backup import failed. See console.";
+  }
+});
+
 
 // Rules controls
 els.addRuleBtn.addEventListener("click", () => {
