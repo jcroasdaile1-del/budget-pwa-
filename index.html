@@ -1348,7 +1348,7 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
   for (const d of data) {
     const frac = d.value / total;
     const end = start + frac * Math.PI * 2;
-    ctx.fillStyle = colorForLabel(d.label);
+    ctx.fillStyle = (d && d.color) ? d.color : colorForLabel(d.label);
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, start, end);
@@ -1382,7 +1382,7 @@ function drawPieWithLegend(canvas, data, title, legendMax=10) {
     const item = legend[i];
     const y = ly0 + i * rowH;
 
-    ctx.fillStyle = colorForLabel(item.label);
+    ctx.fillStyle = (item && item.color) ? item.color : colorForLabel(item.label);
     ctx.fillRect(lx, y - sh/2, sw, sh);
 
     ctx.fillStyle = "#e8eefc";
@@ -2682,9 +2682,13 @@ function renderFidelitySnapshotUI() {
   const otherSum = alloc.slice(10).reduce((s,x)=>s+x.value,0);
   const pieData = otherSum > 0 ? top.concat([{ label:"Other", value: otherSum }]) : top;
 
-  try { drawPieWithLegend(pieCanvas, pieData, "Fidelity Allocation (Latest Snapshot)", 10); } catch (e) { console.error(e); }
-  if (pieSummary) {
-    pieSummary.textContent = `Top holding: ${top[0]?.label || "—"} (${fidMoney(top[0]?.value || 0)})`;
+// Even-hue color assignment (largest → smallest), to avoid color clustering by ticker symbol
+const pieDataColored = pieData.map((d,i) => ({
+  ...d,
+  color: `hsl(${Math.round((i * 360) / Math.max(1, pieData.length))} 70% 55%)`
+}));
+
+  try { drawPieWithLegend(pieCanvas, pieDataColored, "Fidelity Allocation (Latest Snapshot)", 10); } catch (e) { console.error(e); } = `Top holding: ${top[0]?.label || "—"} (${fidMoney(top[0]?.value || 0)})`;
   }
   const legendEl = document.getElementById("fidPieLegend");
   if (legendEl) legendEl.innerHTML = "";
