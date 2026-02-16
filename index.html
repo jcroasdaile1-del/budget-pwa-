@@ -272,7 +272,7 @@
     </div>
   </div>
 </div>
-<div class="kpiBox" style="grid-column: 1 / -1;">
+<div class="kpiBox">
       <div class="t">Monthly Contributions (All-Time)</div>
       <div id="invMonthly" class="small"></div>
       <hr style="border:none; border-top:1px solid #24314f; margin:14px 0;">
@@ -2380,7 +2380,6 @@ function formatISOForHuman(iso) {
   } catch {
     return iso;
   }
-}
 
 function smartShortDesc(desc) {
   let s = String(desc || "").trim();
@@ -2398,13 +2397,12 @@ function smartShortDesc(desc) {
   const out = (cut > 20 ? s.slice(0, cut) : s.slice(0, maxLen)).trim();
   return out + "…";
 }
+}
 
 
 function fidMoney(n){
   return Number(n||0).toLocaleString("en-US",{style:"currency",currency:"USD"});
 }
-const FID_PIE_PALETTE=["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
-
 function fidMoneySigned(n){
   const v=Number(n||0);
   const p=v>0?"+":"";
@@ -2432,16 +2430,11 @@ function drawBigPie(canvas, data, title){
     return;
   }
 
-  // Keep the donut fully inside the canvas (avoid bottom cutoff)
-  const topPad = 54;  // title area
-  const bottomPad = 22;
-  const availH = Math.max(10, H - topPad - bottomPad);
-  const cx = Math.round(W * 0.50);
-  const cy = Math.round(topPad + (availH * 0.52));
-  const maxR = Math.min(Math.min(W, availH) * 0.44, (availH / 2) - 6);
-  const r  = Math.max(40, Math.round(maxR));
+  const cx = Math.round(W*0.50);
+  const cy = Math.round(H*0.58);
+  const r  = Math.round(Math.min(W,H)*0.44);
 
-  const palette = (typeof FID_PIE_PALETTE !== "undefined") ? FID_PIE_PALETTE : ["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
+  const palette=["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
   let start=-Math.PI/2;
 
   for(let i=0;i<(data||[]).length;i++){
@@ -2556,21 +2549,11 @@ function renderFidelitySnapshotUI() {
   const legendEl = document.getElementById("fidPieLegend");
   if (legendEl) {
     const totalAlloc = pieData.reduce((s,x)=>s+Number(x.value||0),0) || 0;
-    const palette = (typeof FID_PIE_PALETTE !== "undefined") ? FID_PIE_PALETTE : ["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
-
-    const chips = pieData.map((x, i) => {
+    const lines = pieData.map(x => {
       const pct = totalAlloc ? (Number(x.value||0)/totalAlloc)*100 : 0;
-      const color = palette[i % palette.length];
-      const label = escapeHtml(String(x.label||""));
-      const val = (typeof money==="function" ? money(Number(x.value||0)) : fidMoney(Number(x.value||0)));
-      return `<span class="chip" title="${label} ${val} (${pct.toFixed(1)}%)">
-        <span style="width:10px;height:10px;border-radius:3px;background:${color};display:inline-block;border:1px solid rgba(255,255,255,0.15);"></span>
-        <span style="font-weight:900;">${label}</span>
-        <span class="hint" style="margin-left:2px;">${pct.toFixed(1)}%</span>
-      </span>`;
-    }).join("");
-
-    legendEl.innerHTML = chips ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">${chips}</div>` : "";
+      return `${escapeHtml(String(x.label||""))}: ${(typeof money==="function"?money(Number(x.value||0)):fidMoney(Number(x.value||0)))} (${pct.toFixed(1)}%)`;
+    }).join("<br>");
+    legendEl.innerHTML = lines || "";
   }
 // Holdings table
   const rows = positions
@@ -2832,7 +2815,11 @@ if(typeof window.updateDashboard==="function"){
     updateInvestingModule(scopeTx, allTransactions);
     // Phase 2: holdings snapshots UI
     try { renderFidelitySnapshotUI(); } catch {}
-};
+  };
+
+  // Ensure Fidelity Investing KPIs hydrate on first page load:
+  // init() may have called the original updateDashboard before this wrapper is installed.
+  try { window.updateDashboard(); } catch {}
 }
 
 })();
