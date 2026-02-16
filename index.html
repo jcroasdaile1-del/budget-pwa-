@@ -2688,8 +2688,10 @@ const pieDataColored = pieData.map((d,i) => ({
   color: `hsl(${Math.round((i * 360) / Math.max(1, pieData.length))} 70% 55%)`
 }));
 
-  try { drawPieWithLegend(pieCanvas, pieDataColored, "Fidelity Allocation (Latest Snapshot)", 10); } catch (e) { console.error(e); } = `Top holding: ${top[0]?.label || "—"} (${fidMoney(top[0]?.value || 0)})`;
-  }
+  try { drawPieWithLegend(pieCanvas, pieDataColored, "Fidelity Allocation (Latest Snapshot)", 10); } catch (e) { console.error(e); }
+
+  // Summary line under the chart (keep it simple and stable)
+  if (pieSummary) pieSummary.textContent = `Top holding: ${top[0]?.label || "—"} (${fidMoney(top[0]?.value || 0)})`;
   const legendEl = document.getElementById("fidPieLegend");
   if (legendEl) legendEl.innerHTML = "";
 // Holdings table
