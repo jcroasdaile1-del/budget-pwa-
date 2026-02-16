@@ -279,12 +279,12 @@
 
       <details open style="margin-top:6px;">
         <summary>Portfolio Snapshot (Holdings)</summary>
-
         <div class="small" style="margin-top:8px;">
           Import your Fidelity <span class="mono">Portfolio Positions</span> CSV to track holdings, allocation, and unrealized gains/losses.
           Cash (<span class="mono">FCASH**</span>) is included.
         </div>
 
+        <!-- Import -->
         <div class="kpiBox" style="margin-top:10px;">
           <div class="row" style="align-items:flex-end;">
             <div style="flex:1; min-width:260px;">
@@ -306,21 +306,24 @@
           </div>
         </div>
 
-        <div class="bigKpi2" style="margin-top:12px;">
-          <div class="t">Portfolio Value (Latest Snapshot)</div>
-          <div id="fidPortfolioValue" class="v">$0.00</div>
-          <div id="fidPortfolioSub" class="s">No snapshots yet.</div>
-        </div>
-
-        <div class="miniGrid2" style="margin-top:12px;">
-          <div>
-            <canvas id="fidPieCanvas" width="1200" height="520" style="width:100%; height:auto; display:block;"></canvas>
-            <div id="fidPieSummary" class="small"></div>
+        <!-- Portfolio (full-width section, not boxed into small KPI tiles) -->
+        <div style="margin-top:12px;">
+          <div class="bigKpi2">
+            <div class="t">Portfolio Value (Latest Snapshot)</div>
+            <div id="fidPortfolioValue" class="v">$0.00</div>
+            <div id="fidPortfolioSub" class="s">No snapshots yet.</div>
           </div>
 
-          <div class="kpiBox">
-            <div class="t">Holdings (Latest Snapshot)</div>
-            <div id="fidHoldingsTable" class="small" style="margin-top:8px;"></div>
+          <div class="card" style="margin-top:12px; border-radius:12px; padding:14px;">
+            <div class="pill">Allocation</div>
+            <canvas id="fidPieCanvas" width="1200" height="600" style="width:100%; height:600px; display:block; margin-top:10px;"></canvas>
+            <div id="fidPieSummary" class="small" style="margin-top:8px;"></div>
+            <div id="fidPieLegend" class="small" style="margin-top:8px;"></div>
+          </div>
+
+          <div class="card" style="margin-top:12px; border-radius:12px; padding:14px;">
+            <div class="pill">Holdings (Latest Snapshot)</div>
+            <div id="fidHoldingsTable" class="small" style="margin-top:10px;"></div>
           </div>
         </div>
 
@@ -329,7 +332,9 @@
           <div class="small hint" style="margin-top:6px;">Snapshots are saved in your browser (localStorage). Delete old ones to keep things tidy.</div>
           <div id="fidSnapHistory" style="overflow:auto; margin-top:10px;"></div>
         </details>
+
       </details>
+
 
     </div>
   </div>
@@ -678,7 +683,7 @@ function money(n) {
 function moneySigned(n) {
   const v = Number(n || 0);
   const prefix = v > 0 ? "+" : "";
-  return prefix + money(v);
+  return prefix + (typeof money==="function"?money(v):fidMoney(v));
 }
 
 function parseDateSmart(value) {
@@ -2392,77 +2397,80 @@ function smartShortDesc(desc) {
   const out = (cut > 20 ? s.slice(0, cut) : s.slice(0, maxLen)).trim();
   return out + "…";
 }
+}
 
-function drawBigPie(canvas, data, title) {
-  // Draw a large centered pie (no legend on canvas). Legend should be rendered in HTML.
-  if (!canvas) return;
+
+function fidMoney(n){
+  return Number(n||0).toLocaleString("en-US",{style:"currency",currency:"USD"});
+}
+function fidMoneySigned(n){
+  const v=Number(n||0);
+  const p=v>0?"+":"";
+  return p+fidMoney(v);
+}
+function drawBigPie(canvas, data, title){
+  if(!canvas) return;
   const ctx = canvas.getContext("2d");
   const W = canvas.width || 800;
-  const H = canvas.height || 400;
+  const H = canvas.height || 500;
 
-  ctx.clearRect(0, 0, W, H);
+  ctx.clearRect(0,0,W,H);
   ctx.fillStyle = "#0f1726";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0,0,W,H);
 
-  // Title
   ctx.fillStyle = "#9fb0d0";
-  ctx.font = "700 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.font = "800 16px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
   ctx.fillText(title || "Allocation", 18, 28);
 
-  const cx = Math.round(W * 0.5);
-  const cy = Math.round(H * 0.58); // slightly lower to give title room
-  const r = Math.round(Math.min(W, H) * 0.42); // BIGGER than old 0.30
-
-  const total = (data || []).reduce((s, d) => s + Number(d.value || 0), 0);
-  if (!total) {
+  const total = (data||[]).reduce((s,d)=>s+Number(d.value||0),0);
+  if(!total){
     ctx.fillStyle = "#9fb0d0";
-    ctx.font = "600 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+    ctx.font = "700 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
     ctx.fillText("No allocation data.", 18, 54);
     return;
   }
 
-  // Simple deterministic palette (derived from existing legend colors behavior is elsewhere; we keep it lightweight)
-  const palette = ["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
-  let start = -Math.PI / 2;
+  const cx = Math.round(W*0.50);
+  const cy = Math.round(H*0.58);
+  const r  = Math.round(Math.min(W,H)*0.44);
 
-  for (let i = 0; i < data.length; i++) {
-    const d = data[i];
-    const v = Number(d.value || 0);
-    const angle = (v / total) * Math.PI * 2;
-    const end = start + angle;
+  const palette=["#64d2ff","#6bff95","#ffb86b","#c77dff","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f","#a8dadc","#f4a261","#2a9d8f"];
+  let start=-Math.PI/2;
+
+  for(let i=0;i<(data||[]).length;i++){
+    const v=Number(data[i].value||0);
+    const angle=(v/total)*Math.PI*2;
+    const end=start+angle;
 
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, start, end);
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r,start,end);
     ctx.closePath();
-    ctx.fillStyle = palette[i % palette.length];
+    ctx.fillStyle=palette[i%palette.length];
     ctx.fill();
 
-    // subtle border
-    ctx.strokeStyle = "#0b1220";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle="#0b1220";
+    ctx.lineWidth=2;
     ctx.stroke();
 
-    start = end;
+    start=end;
   }
 
-  // center donut to modernize
+  // donut
   ctx.beginPath();
-  ctx.arc(cx, cy, Math.round(r * 0.55), 0, Math.PI * 2);
+  ctx.arc(cx,cy,Math.round(r*0.56),0,Math.PI*2);
   ctx.closePath();
-  ctx.fillStyle = "#0f1726";
+  ctx.fillStyle="#0f1726";
   ctx.fill();
 
-  // center label (total)
-  ctx.fillStyle = "#e8eefc";
-  ctx.font = "800 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("Total", cx, cy - 8);
-  ctx.fillStyle = "#9fb0d0";
-  ctx.font = "700 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
-  ctx.fillText(money(total), cx, cy + 14);
-  ctx.textAlign = "left";
-}
+  ctx.textAlign="center";
+  ctx.fillStyle="#e8eefc";
+  ctx.font="900 18px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText("Total",cx,cy-8);
+  ctx.fillStyle="#9fb0d0";
+  ctx.font="800 14px -apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  ctx.fillText(fidMoney(total),cx,cy+14);
+  ctx.textAlign="left";
 }
 
 function renderFidelitySnapshotUI() {
@@ -2506,7 +2514,7 @@ function renderFidelitySnapshotUI() {
   const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : null;
 
   const latestVal = Number(latest.totalValue || 0);
-  valueEl.textContent = money(latestVal);
+  valueEl.textContent = (typeof money==="function"?money(latestVal):fidMoney(latestVal));
   valueEl.classList.remove("pos","neg");
 
   let sub = `As of ${formatISOForHuman(latest.asOfDateISO)} · ${latest.positions?.length || 0} positions`;
@@ -2514,7 +2522,7 @@ function renderFidelitySnapshotUI() {
     const prevVal = Number(prev.totalValue || 0);
     const delta = latestVal - prevVal;
     const pct = prevVal ? (delta / prevVal) * 100 : null;
-    const deltaText = `${moneySigned(delta)}${(pct !== null ? ` (${(pct>=0?"+":"")}${pct.toFixed(2)}%)` : "")}`;
+    const deltaText = `${(typeof moneySigned==="function"?moneySigned(delta):fidMoneySigned(delta))}${(pct !== null ? ` (${(pct>=0?"+":"")}${pct.toFixed(2)}%)` : "")}`;
     sub += ` · Change vs prior snapshot: ${deltaText}`;
     if (subEl) subEl.classList.remove("pos","neg");
     if (delta > 0) subEl.classList.add("pos");
@@ -2532,23 +2540,22 @@ function renderFidelitySnapshotUI() {
   const otherSum = alloc.slice(10).reduce((s,x)=>s+x.value,0);
   const pieData = otherSum > 0 ? top.concat([{ label:"Other", value: otherSum }]) : top;
 
-  drawBigPie(pieCanvas, pieData, "Fidelity Allocation (Latest Snapshot)");
-  
-if (pieSummary) {
-    pieSummary.textContent = `Top holding: ${top[0]?.label || "—"} (${money(top[0]?.value || 0)})`;
+  try { drawBigPie(pieCanvas, pieData, "Fidelity Allocation (Latest Snapshot)"); } catch (e) { console.error(e); }
+  if (pieSummary) {
+    pieSummary.textContent = `Top holding: ${top[0]?.label || "—"} (${fidMoney(top[0]?.value || 0)})`;
   }
+
+  
   const legendEl = document.getElementById("fidPieLegend");
   if (legendEl) {
     const totalAlloc = pieData.reduce((s,x)=>s+Number(x.value||0),0) || 0;
     const lines = pieData.map(x => {
       const pct = totalAlloc ? (Number(x.value||0)/totalAlloc)*100 : 0;
-      return `${escapeHtml(String(x.label||""))}: ${money(Number(x.value||0))} (${pct.toFixed(1)}%)`;
+      return `${escapeHtml(String(x.label||""))}: ${(typeof money==="function"?money(Number(x.value||0)):fidMoney(Number(x.value||0)))} (${pct.toFixed(1)}%)`;
     }).join("<br>");
     legendEl.innerHTML = lines || "";
   }
-
-
-  // Holdings table
+// Holdings table
   const rows = positions
     .slice()
     .sort((a,b)=>Number(b.marketValue||0) - Number(a.marketValue||0))
@@ -2562,10 +2569,10 @@ if (pieSummary) {
           <td class="mono">${escapeHtml(p.symbol || "")}</td>
           <td class="descShort" title="${escapeHtml(p.description || "")}">${escapeHtml(smartShortDesc(p.description || ""))}</td>
           <td class="mono right">${(p.shares === null || p.shares === undefined) ? "—" : escapeHtml(String(p.shares))}</td>
-          <td class="mono right">${money(p.marketValue || 0)}</td>
+          <td class="mono right">${(typeof money==="function"?money(p.marketValue || 0):fidMoney(p.marketValue || 0))}</td>
           <td class="mono right">${pct === null ? "—" : pct.toFixed(2) + "%"}</td>
-          <td class="mono right">${p.costBasisTotal === null ? "—" : money(p.costBasisTotal)}</td>
-          <td class="mono right ${glClass}">${glDol === null ? "—" : moneySigned(glDol)}${(glPct === null ? "" : ` (${(glPct>=0?"+":"")}${glPct.toFixed(2)}%)`)}</td>
+          <td class="mono right">${p.costBasisTotal === null ? "—" : (typeof money==="function"?money(p.costBasisTotal):fidMoney(p.costBasisTotal))}</td>
+          <td class="mono right ${glClass}">${glDol === null ? "—" : (typeof moneySigned==="function"?moneySigned(glDol):fidMoneySigned(glDol))}${(glPct === null ? "" : ` (${(glPct>=0?"+":"")}${glPct.toFixed(2)}%)`)}</td>
         </tr>
       `;
     }).join("");
@@ -2597,7 +2604,7 @@ if (pieSummary) {
     return `
       <tr>
         <td class="mono">${escapeHtml(label)}</td>
-        <td class="mono right">${money(v)}</td>
+        <td class="mono right">${(typeof money==="function"?money(v):fidMoney(v))}</td>
         <td class="mono">${escapeHtml(s.sourceFileName || "")}</td>
         <td class="right"><button class="danger" data-del-snap="${escapeHtml(id)}">Delete</button></td>
       </tr>
