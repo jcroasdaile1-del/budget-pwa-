@@ -2185,10 +2185,15 @@ function exportBackupNow() {
 
 async function importBackupFromFile(file) {
   const text = await file.text();
-  const data = JSON.parse(text);
+  const raw = JSON.parse(text);
+
+  // Support both backup formats:
+  //  - Flat (legacy): { transactions, userRules, ... }
+  //  - Wrapped: { app, schemaVersion, exportedAtISO, data: { transactions, ... } }
+  if (!raw || typeof raw !== "object") throw new Error("Invalid JSON.");
+  const data = (raw.data && typeof raw.data === "object") ? raw.data : raw;
 
   // Basic validation
-  if (!data || typeof data !== "object") throw new Error("Invalid JSON.");
   const required = ["transactions","userRules","importMeta","cardProfiles","trashStore"];
   for (const k of required) {
     if (!(k in data)) throw new Error(`Backup missing key: ${k}`);
