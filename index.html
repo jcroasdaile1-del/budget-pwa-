@@ -2135,6 +2135,7 @@ els.clearBtn.addEventListener("click", () => {
   importMeta = [];
   cardProfiles = [];
   trashStore = { rules: [], cards: [], cardTx: [] };
+  localStorage.removeItem("fidelitySnapshots");
   saveAll();
   updateDashboard();
 });
