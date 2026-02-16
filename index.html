@@ -2125,14 +2125,20 @@ els.removeMarkersBtn.addEventListener("click", () => {
 });
 
 els.clearBtn.addEventListener("click", () => {
-  if (!confirm("Start Fresh? This deletes transactions, rules, card profiles, and trash. This can't be undone.")) return;
+  if (!confirm("Start Fresh? This deletes transactions, rules, card profiles, trash, and Fidelity snapshots. This can't be undone.")) return;
   allTransactions = [];
   userRules = [];
   importMeta = [];
   cardProfiles = [];
   trashStore = { rules: [], cards: [], cardTx: [] };
+  // Also clear Fidelity holdings snapshots
+  try { localStorage.setItem("fidelitySnapshots", "[]"); } catch {}
   saveAll();
   updateDashboard();
+  // Refresh Fidelity UI if present
+  if (typeof renderFidelitySnapshotUI === "function") {
+    try { renderFidelitySnapshotUI(); } catch (e) { console.error(e); }
+  }
 });
 
 
@@ -2190,17 +2196,39 @@ async function importBackupFromFile(file) {
 
   if (!confirm("Import backup? This will overwrite your current data in this browser.")) return;
 
-  localStorage.setItem("transactions", JSON.stringify(data.transactions || []));
-  localStorage.setItem("userRules", JSON.stringify(data.userRules || []));
-  localStorage.setItem("importMeta", JSON.stringify(data.importMeta || []));
-  localStorage.setItem("cardProfiles", JSON.stringify(data.cardProfiles || []));
-  localStorage.setItem("trashStore", JSON.stringify(data.trashStore || { rules: [], cards: [], cardTx: [] }));
+  // Update in-memory state first (so any subsequent renders use the imported data)
+  allTransactions = Array.isArray(data.transactions) ? data.transactions : [];
+  userRules = Array.isArray(data.userRules) ? data.userRules : [];
+  importMeta = Array.isArray(data.importMeta) ? data.importMeta : [];
+  cardProfiles = Array.isArray(data.cardProfiles) ? data.cardProfiles : [];
+  trashStore = (data.trashStore && typeof data.trashStore === "object") ? data.trashStore : { rules: [], cards: [], cardTx: [] };
+  ensureTrashStoreShape();
+
+  // Persist to storage
+  saveAll();
+
+  // Fidelity snapshots (optional but supported)
   if ("fidelitySnapshots" in data) {
-    localStorage.setItem("fidelitySnapshots", JSON.stringify(data.fidelitySnapshots || []));
+    try {
+      localStorage.setItem("fidelitySnapshots", JSON.stringify(Array.isArray(data.fidelitySnapshots) ? data.fidelitySnapshots : []));
+    } catch {}
   }
-  els.status.textContent = "Backup imported. Reloading...";
-  location.reload();
+
+  // Re-render UI immediately (no reload required)
+  populateImportCardDropdown();
+  updateImportUI();
+  renderCardSettings();
+  updateRulesTable();
+  renderCardsTrash();
+  renderRulesTrash();
+  updateDashboard();
+  if (typeof renderFidelitySnapshotUI === "function") {
+    try { renderFidelitySnapshotUI(); } catch (e) { console.error(e); }
+  }
+
+  els.status.textContent = "Backup imported.";
 }
+
 
 els.exportBackupBtn.addEventListener("click", exportBackupNow);
 
