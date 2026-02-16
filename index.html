@@ -2381,6 +2381,8 @@ function formatISOForHuman(iso) {
     return iso;
   }
 
+}
+
 function smartShortDesc(desc) {
   let s = String(desc || "").trim();
   if (!s) return "";
@@ -2397,7 +2399,7 @@ function smartShortDesc(desc) {
   const out = (cut > 20 ? s.slice(0, cut) : s.slice(0, maxLen)).trim();
   return out + "…";
 }
-}
+
 
 
 function fidMoney(n){
