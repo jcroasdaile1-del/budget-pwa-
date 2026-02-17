@@ -95,10 +95,11 @@
             </div>
           </div>
           <div class="btnRow" style="margin-top:8px;">
-            <button class="ghost" id="rangeToAllDataBtn">Full history range</button>
+            <button class="ghost" id="rangeLast30Btn">Last 30 days</button>
             <button class="ghost" id="rangeLast90Btn">Last 90 days</button>
-            <button class="ghost" id="rangeThisMonthBtn">This month</button>
-          </div>
+            <button class="ghost" id="rangeLastYearBtn">Last year</button>
+            <button class="ghost" id="rangeToAllDataBtn">All time</button>
+            <button class="ghost" id="rangeThisMonthBtn">Current month</button></div>
         </div>
 
         <div id="monthWrap" style="margin-top:10px; display:none;">
@@ -1489,6 +1490,8 @@ const els = {
   rangeToAllDataBtn: document.getElementById("rangeToAllDataBtn"),
   rangeLast90Btn: document.getElementById("rangeLast90Btn"),
   rangeThisMonthBtn: document.getElementById("rangeThisMonthBtn"),
+  rangeLast30Btn: document.getElementById("rangeLast30Btn"),
+  rangeLastYearBtn: document.getElementById("rangeLastYearBtn"),
   monthSelect: document.getElementById("monthSelect"),
   chartMode: document.getElementById("chartMode"),
   pieCanvas: document.getElementById("pieCanvas"),
@@ -2067,25 +2070,51 @@ els.rangeEnd.addEventListener("change", updateDashboard);
 els.monthSelect.addEventListener("change", updateDashboard);
 els.chartMode.addEventListener("change", updateDashboard);
 
-els.rangeToAllDataBtn.addEventListener("click", () => {
-  const { minISO, maxISO } = getDataRange();
-  if (minISO) els.rangeStart.value = minISO;
-  if (maxISO) els.rangeEnd.value = maxISO;
+els.rangeLast30Btn.addEventListener("click", () => {
+  els.viewMode.value = "range";
+  updateViewModeUI();
+  const { maxISO } = getDataRange();
+  if (!maxISO) return;
+  els.rangeEnd.value = maxISO;
+  els.rangeStart.value = isoAddDays(maxISO, -29);
   updateDashboard();
 });
+
 els.rangeLast90Btn.addEventListener("click", () => {
+  els.viewMode.value = "range";
+  updateViewModeUI();
   const { maxISO } = getDataRange();
   if (!maxISO) return;
   els.rangeEnd.value = maxISO;
   els.rangeStart.value = isoAddDays(maxISO, -89);
   updateDashboard();
 });
+
+els.rangeLastYearBtn.addEventListener("click", () => {
+  els.viewMode.value = "range";
+  updateViewModeUI();
+  const { maxISO } = getDataRange();
+  if (!maxISO) return;
+  els.rangeEnd.value = maxISO;
+  els.rangeStart.value = isoAddDays(maxISO, -364);
+  updateDashboard();
+});
+
+els.rangeToAllDataBtn.addEventListener("click", () => {
+  els.viewMode.value = "all";
+  updateViewModeUI();
+  updateDashboard();
+});
+
 els.rangeThisMonthBtn.addEventListener("click", () => {
-  const now = new Date();
-  const month = yyyymmFromDate(now);
+  els.viewMode.value = "range";
+  updateViewModeUI();
+  const { maxISO } = getDataRange();
+  if (!maxISO) return;
+  const d = new Date(maxISO + "T00:00:00");
+  const month = yyyymmFromDate(d);
   els.rangeStart.value = `${month}-01`;
-  const [y,m] = month.split("-").map(n=>parseInt(n,10));
-  els.rangeEnd.value = new Date(y, m, 0).toISOString().slice(0,10);
+  els.rangeEnd.value = maxISO;
   updateDashboard();
 });
 
